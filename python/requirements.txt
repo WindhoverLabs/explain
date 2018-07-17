@@ -1,0 +1,3 @@
+# Requirements for Explain development environment
+
+pyelftools
