@@ -1,0 +1,164 @@
+{
+    "bitmap": [
+        {
+            "dst_symbol": "test_data_types_dst",
+            "fields": [
+                {
+                    "length": 88,
+                    "src_offset": 0,
+                    "op_name": "TlmHeader",
+                    "dst_offset": 0
+                },
+                {
+                    "length": 16,
+                    "src_offset": 96,
+                    "op_name": "synch",
+                    "dst_offset": 96
+                },
+                {
+                    "length": 8,
+                    "src_offset": 112,
+                    "op_name": "padding",
+                    "dst_offset": 112
+                },
+                {
+                    "length": 1,
+                    "src_offset": 127,
+                    "op_name": "bit1",
+                    "dst_offset": 135
+                },
+                {
+                    "length": 1,
+                    "src_offset": 126,
+                    "op_name": "bit2",
+                    "dst_offset": 134
+                },
+                {
+                    "length": 2,
+                    "src_offset": 124,
+                    "op_name": "bit34",
+                    "dst_offset": 132
+                },
+                {
+                    "length": 2,
+                    "src_offset": 122,
+                    "op_name": "bit56",
+                    "dst_offset": 130
+                },
+                {
+                    "length": 2,
+                    "src_offset": 120,
+                    "op_name": "bit78",
+                    "dst_offset": 128
+                },
+                {
+                    "length": 4,
+                    "src_offset": 132,
+                    "op_name": "nibble1",
+                    "dst_offset": 140
+                },
+                {
+                    "length": 4,
+                    "src_offset": 128,
+                    "op_name": "nibble2",
+                    "dst_offset": 136
+                },
+                {
+                    "length": 8,
+                    "src_offset": 136,
+                    "op_name": "bl1",
+                    "dst_offset": 144
+                },
+                {
+                    "length": 8,
+                    "src_offset": 144,
+                    "op_name": "bl2",
+                    "dst_offset": 152
+                },
+                {
+                    "length": 8,
+                    "src_offset": 152,
+                    "op_name": "b1",
+                    "dst_offset": 160
+                },
+                {
+                    "length": 8,
+                    "src_offset": 160,
+                    "op_name": "b2",
+                    "dst_offset": 168
+                },
+                {
+                    "length": 8,
+                    "src_offset": 168,
+                    "op_name": "b3",
+                    "dst_offset": 176
+                },
+                {
+                    "length": 8,
+                    "src_offset": 176,
+                    "op_name": "b4",
+                    "dst_offset": 184
+                },
+                {
+                    "length": 16,
+                    "src_offset": 192,
+                    "op_name": "w1",
+                    "dst_offset": 192
+                },
+                {
+                    "length": 16,
+                    "src_offset": 208,
+                    "op_name": "w2",
+                    "dst_offset": 208
+                },
+                {
+                    "length": 32,
+                    "src_offset": 224,
+                    "op_name": "dw1",
+                    "dst_offset": 224
+                },
+                {
+                    "length": 32,
+                    "src_offset": 256,
+                    "op_name": "dw2",
+                    "dst_offset": 256
+                },
+                {
+                    "length": 32,
+                    "src_offset": 288,
+                    "op_name": "f1",
+                    "dst_offset": 288
+                },
+                {
+                    "length": 32,
+                    "src_offset": 320,
+                    "op_name": "f2",
+                    "dst_offset": 320
+                },
+                {
+                    "length": 64,
+                    "src_offset": 384,
+                    "op_name": "df1",
+                    "dst_offset": 384
+                },
+                {
+                    "length": 64,
+                    "src_offset": 448,
+                    "op_name": "df2",
+                    "dst_offset": 448
+                },
+                {
+                    "length": 80,
+                    "src_offset": 512,
+                    "op_name": "str",
+                    "dst_offset": 512
+                }
+            ],
+            "ops_name": "",
+            "src_endian": "L",
+            "src_symbol": "test_data_types_src",
+            "id": "0x0881",
+            "dst_endian": "L"
+        }
+    ]
+}

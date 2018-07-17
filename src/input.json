@@ -1,0 +1,96 @@
+{
+   "bitmap": [
+       {
+           "dst_symbol": "CI_HkTlm_t",
+           "fields": [
+               {
+                   "length": 88,
+                   "src_offset": 0,
+                   "op_name": "TlmHeader",
+                   "dst_offset": 0
+               },
+               {
+                   "length": 8,
+                   "src_offset": 96,
+                   "op_name": "usCmdCnt",
+                   "dst_offset": 96
+               },
+               {
+                   "length": 8,
+                   "src_offset": 104,
+                   "op_name": "usCmdErrCnt",
+                   "dst_offset": 104
+               },
+               {
+                   "length": 8,
+                   "src_offset": 112,
+                   "op_name": "padding",
+                   "dst_offset": 112
+               },
+               {
+                   "length": 8,
+                   "src_offset": 128,
+                   "op_name": "IngestMsgCount",
+                   "dst_offset": 128
+               },
+               {
+                   "length": 8,
+                   "src_offset": 136,
+                   "op_name": "IngestErrorCount",
+                   "dst_offset": 136
+               }
+           ],
+           "ops_name": "test1",
+           "src_endian": "L",
+           "src_symbol": "CI_HkTlm_t",
+           "id": "123",
+           "dst_endian": "L"
+       },
+        {
+           "dst_symbol": "CI_HkTlm_t",
+           "fields": [
+               {
+                   "length": 88,
+                   "src_offset": 0,
+                   "op_name": "TlmHeader",
+                   "dst_offset": 0
+               },
+               {
+                   "length": 8,
+                   "src_offset": 96,
+                   "op_name": "usCmdCnt",
+                   "dst_offset": 96
+               },
+               {
+                   "length": 8,
+                   "src_offset": 104,
+                   "op_name": "usCmdErrCnt",
+                   "dst_offset": 104
+               },
+               {
+                   "length": 8,
+                   "src_offset": 112,
+                   "op_name": "padding",
+                   "dst_offset": 112
+               },
+               {
+                   "length": 8,
+                   "src_offset": 128,
+                   "op_name": "IngestMsgCount",
+                   "dst_offset": 128
+               },
+               {
+                   "length": 8,
+                   "src_offset": 136,
+                   "op_name": "IngestErrorCount",
+                   "dst_offset": 136
+               }
+           ],
+           "ops_name": "test2",
+           "src_endian": "L",
+           "src_symbol": "CI_HkTlm_t",
+           "id": "1234",
+           "dst_endian": "L"
+       }
+   ]
+}
