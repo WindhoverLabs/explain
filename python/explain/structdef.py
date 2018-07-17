@@ -6,7 +6,7 @@
 #
 # Mathew Benson (mbenson@windhoverlabs.com)
 
-from attribdef import *
+from explain.attribdef import *
 
 class StructDef(object):
     def __init__(self, msgid, name):
