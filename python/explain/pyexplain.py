@@ -31,10 +31,7 @@ def process_file(filename, symbol):
     with open(filename, 'rb') as f:
         elffile = ELFFile(f)
 
-        if elffile.little_endian:
-            endian = 'L'
-        else:
-            endian = 'B'
+        endian = 'L' if elffile.little_endian else 'B'
 
         if not elffile.has_dwarf_info():
             print('  file has no DWARF info')
@@ -203,7 +200,6 @@ def main():
     else:
         with open(args.output, 'r') as json_data:
             output = json.load(json_data)
-            json_data.close()
 
     struct = {
         'id': args.msgid,
