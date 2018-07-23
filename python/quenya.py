@@ -9,6 +9,7 @@ Code Limitations:
 
 import argparse
 import hashlib
+import logging
 import os
 import sqlite3
 
@@ -24,8 +25,9 @@ class QuenyaError(Exception):
 class Quenya(object):
     """Quenya, the language of the High Elves"""
 
-    def __init__(self, db_file):
+    def __init__(self, db_file, logger=None):
         self.database = sqlite3.connect(db_file)
+        self.logger = logger
         self.create_tables()
 
     @staticmethod
@@ -114,7 +116,7 @@ class Quenya(object):
 
         # Insert symbols from ELF
         elf_id = c.lastrowid
-        elf_view = ElfView(self.database, elf_id)
+        elf_view = ElfView(self.database, elf_id, self.logger)
         elf_view.insert_symbols(elf)
         return True
 
@@ -122,12 +124,14 @@ class Quenya(object):
 class ElfView(object):
     ENCODING = 'utf-8'
 
-    def __init__(self, database, elf_id):
+    def __init__(self, database, elf_id, logger=None):
         self.database = database
         self.elf_id = elf_id
+        self.logger = logger
 
     def insert_enumeration(self, symbol_id, value, name):
-        print('insert_enumeration', symbol_id, value, name)
+        self.logger.debug('insert_enumeration {} {} {}'.format(
+            symbol_id, value, name))
         c = self.database.cursor()
         enum_id = c.execute('SELECT id FROM enumerations WHERE symbol=? AND '
                             'value=?', (symbol_id, value)).fetchone()
@@ -141,7 +145,8 @@ class ElfView(object):
         return enum_id
 
     def insert_field(self, symbol_id, name, bit_offset, kind, multiplicity=0):
-        print('insert_field', symbol_id, name, bit_offset, kind, multiplicity)
+        self.logger.debug('insert_field {} {} {} {}'.format(
+            symbol_id, name, bit_offset, kind, multiplicity))
         c = self.database.cursor()
         field_id = c.execute('SELECT id FROM fields WHERE symbol=? AND name=?',
                              (symbol_id, name)).fetchone()
@@ -157,7 +162,7 @@ class ElfView(object):
 
     def insert_symbol(self, name, byte_size):
         """Insert a symbol with name and byte_size."""
-        print('insert_symbol {} (size={})'.format(name, byte_size))
+        self.logger.debug('insert_symbol {} (size={})'.format(name, byte_size))
         c = self.database.cursor()
         symbol_id = c.execute('SELECT id FROM symbols WHERE elf=? AND '
                               'name=?', (self.elf_id, name)).fetchone()
@@ -175,7 +180,7 @@ class ElfView(object):
         dwarf = elf.get_dwarf_info()
 
         for i, cu in enumerate(dwarf.iter_CUs()):
-            print('CU #{}: {}'.format(i, cu.header))
+            self.logger.debug('CU #{}: {}'.format(i, cu.header))
             top = cu.get_top_DIE()
             dies = {c.offset - cu.cu_offset: c for c in top.iter_children()}
             self.cu_offset = cu.cu_offset
@@ -184,7 +189,8 @@ class ElfView(object):
                 self._symbol_requires(dies, child.offset - self.cu_offset)
 
     def _symbol_requires(self, dies, offset, typedef=None):
-        print('_symbol_requires {} (typedef={!r})'.format(hex(offset), typedef))
+        self.logger.debug('_symbol_requires {} (typedef={!r})'.format(
+            hex(offset), typedef))
         # print(die_dict)
         known_tags = {
             'DW_TAG_array_type': self._tag_array_type,
@@ -204,7 +210,7 @@ class ElfView(object):
         }
         symbol = dies[offset]
         if isinstance(symbol, int):
-            print('Found inserted symbol id =', symbol)
+            self.logger.debug('Found inserted symbol id = {}'.format(symbol))
             return symbol
         try:
             callback = known_tags[symbol.tag]
@@ -215,7 +221,7 @@ class ElfView(object):
 
     def _die_byte_size(self, die):
         """Get the byte size of a DIE."""
-        print('_die_byte_size', str(die)[:20])
+        self.logger.debug('_die_byte_size {}'.format(str(die)[:20]))
         if isinstance(die, int):
             c = self.database.cursor()
             c.execute('SELECT byte_size FROM symbols WHERE id=?', (die,))
@@ -230,7 +236,7 @@ class ElfView(object):
         return size
 
     def _tag_array_type(self, dies, die_offset, typedef=None):
-        print('_tag_array_type', hex(die_offset))
+        self.logger.debug('_tag_array_type {}'.format(hex(die_offset)))
         die = dies[die_offset - self.cu_offset]
         array_type = die.attributes['DW_AT_type'].value
         array_type_id = self._symbol_requires(dies, array_type)
@@ -255,7 +261,7 @@ class ElfView(object):
         return symbol_id
 
     def _tag_base_type(self, dies, die_offset, typedef=None):
-        print('_tag_base_type', hex(die_offset))
+        self.logger.debug('_tag_base_type {}'.format(hex(die_offset)))
         die = dies[die_offset - self.cu_offset]
         name = die.attributes['DW_AT_name'].value.decode(ElfView.ENCODING)
         size = die.attributes['DW_AT_byte_size'].value
@@ -264,10 +270,11 @@ class ElfView(object):
         return symbol_id
 
     def _tag_enumeration_type(self, dies, die_offset, typedef=None):
-        print('_tag_enumeration_type', hex(die_offset))
+        self.logger.debug('_tag_enumeration_type {}'.format(hex(die_offset)))
         die = dies[die_offset - self.cu_offset]
         if not typedef:
-            print('Skipping direct enum at {}'.format(hex(die_offset)))
+            self.logger.debug('Skipping direct enum at {}'.format(
+                hex(die_offset)))
             return
         symbol_name = typedef
         symbol_byte_size = die.attributes['DW_AT_byte_size'].value
@@ -281,11 +288,11 @@ class ElfView(object):
         return symbol_id
 
     def _tag_skip(self, dies, die_offset, typedef=None):
-        print('Skipping known tag {} at {} (typedef={!r})'.format(
+        self.logger.debug('Skipping known tag {} at {} (typedef={!r})'.format(
             dies[die_offset - self.cu_offset].tag, hex(die_offset), typedef))
 
     def _tag_structure_type(self, dies, die_offset, typedef=None):
-        print('_tag_structure_type', hex(die_offset))
+        self.logger.debug('_tag_structure_type {}'.format(hex(die_offset)))
         return self._tag_structure_or_union_type(
             dies, die_offset, typedef=typedef, union=False)
 
@@ -299,7 +306,8 @@ class ElfView(object):
         except KeyError:
             # Unnamed structure. typedef must be set to continue.
             if not typedef:
-                print('Skipping unnamed {} at {}'.format(kind, hex(die_offset)))
+                self.logger.debug('Skipping unnamed {} at {}'.format(
+                    kind, hex(die_offset)))
                 return
             symbol_name = typedef
         size = die.attributes['DW_AT_byte_size'].value
@@ -318,10 +326,11 @@ class ElfView(object):
         return symbol_id
 
     def _tag_pointer_type(self, dies, die_offset, typedef=None):
-        print('_tag_pointer_type', hex(die_offset))
+        self.logger.debug('_tag_pointer_type {}'.format(hex(die_offset)))
         die = dies[die_offset - self.cu_offset]
         if not typedef:
-            print('Skipping unnamed pointer type')
+            self.logger.debug('Skipping unnamed pointer type at {}'.format(
+                hex(die_offset)))
             return
         pointer_name = typedef
         pointer_size = die.attributes['DW_AT_byte_size'].value
@@ -335,7 +344,7 @@ class ElfView(object):
     def _tag_typedef(self, dies, die_offset, typedef=None):
         """Look at what typedef points to and define a symbol with the name of
         the typedef but the properties of what it points to."""
-        print('_tag_typedef', hex(die_offset))
+        self.logger.debug('_tag_typedef {}'.format(hex(die_offset)))
         die = dies[die_offset - self.cu_offset]
         name = die.attributes['DW_AT_name'].value.decode(ElfView.ENCODING)
         td_offset = die.attributes['DW_AT_type'].value
@@ -367,26 +376,36 @@ class ElfView(object):
         return symbol_id
 
     def _tag_union_type(self, dies, die_offset, typedef=None):
-        print('_tag_union_type', hex(die_offset))
+        self.logger.debug('_tag_union_type {}'.format(hex(die_offset)))
         return self._tag_structure_or_union_type(
             dies, die_offset, union=True, typedef=typedef)
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Elvish can understand ELF files and create tables or '
+        description='Quenya can understand ELF files and create tables or '
                     'output files with symbol and field names.')
     parser.add_argument('--files', nargs='*', default=[],
                         help='elf file(s) to load.')
     parser.add_argument('--database', default=':memory:',
                         help='use an existing database.')
     parser.add_argument('--json', help='JSON output file.')
+    parser.add_argument('--sql', action='store_true',
+                        help='stdout the SQL database')
+    parser.add_argument('-v', '--verbose', action='store_true',
+                        help='verbose')
     args = parser.parse_args()
 
-    # Open database
-    elvish = Quenya(args.database)
+    # Logging
+    level = logging.DEBUG if args.verbose else logging.WARNING
+    logger = logging.getLogger()
+    logger.setLevel(level)
+    logger.addHandler(logging.StreamHandler())
 
-    # Load required files
+    # Open database
+    elvish = Quenya(args.database, logger=logger)
+
+    # Insert ELF files
     loaded = True
     for file in args.files:
         try:
@@ -398,9 +417,9 @@ def main():
         pass  # exit(1)
 
     # Debug print database
-    print('\n\n')
-    for line in elvish.database.iterdump():
-        print(line)
+    if args.sql:
+        for line in elvish.database.iterdump():
+            print(line)
 
 
 if __name__ == '__main__':
