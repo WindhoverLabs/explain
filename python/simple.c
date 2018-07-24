@@ -1,5 +1,23 @@
-//#include <stdio.h>
+#include <stdio.h>
+#include <string.h>
 //#include <stdlib.h>
+
+void printByte(char byte) {
+    char mask = 0x80;
+    for(int i=0; i<8; ++i){
+        // print last bit and shift left.
+        printf("%u", byte & mask ? 1 : 0);
+        byte = byte << 1;
+    }
+    printf(" ");
+}
+
+void printBytes(char* address, int numBits) {
+    for (int i=0; i < numBits; i++) {
+        printByte(address[i]);
+    }
+    printf("\n");
+}
 
 // Simple typedef. easy.
 typedef int potato;
@@ -17,12 +35,13 @@ typedef struct basket {
 // that refers to it will be using the debug address
 // which changes per compilation unit.
 typedef basket baskets[10];
+typedef basket baskets2[10];
 
 typedef union lunch_box {
     potato potato;
-    potato many_potatoes[2];
+    potato array_potatoes[2];
     potato* potential_potato;
-    potato (*many_potential_potatoes)[10];
+    potato (*p_array_potatoes)[10];
 } lunch_box;
 
 // Two identical structs create separate debug entries.
@@ -54,35 +73,46 @@ struct lettuce {
 typedef struct lettuce romaine;
 typedef struct lettuce iceberg;
 
+// Bit Fields
+#pragma pack(1)
+typedef struct partial {
+//    char a;
+//    char b: 5;
+//    short c: 10;
+//    char d: 4;
+    char a: 1;
+    char b: 2;
+    char c: 5;
+    short d: 10;
+} partial;
 
-boiled add(potato x, potato y) {
-    return x + y;
-}
+
+typedef union punion {
+    short s;
+    short u: 4;
+} punion;
+
 
 int main() {
-    struct {
-        int a;
-        long b;
-    } thing;
+    partial l;
+    memset(&l, 0, sizeof(l));
+    l.a = -1;
+    printBytes((char*)&l, sizeof(l));
+    memset(&l, 0, sizeof(l));
+    l.b = -1;
+    printBytes((char*)&l, sizeof(l));
+    memset(&l, 0, sizeof(l));
+    l.c = -1;
+    printBytes((char*)&l, sizeof(l));
+    memset(&l, 0, sizeof(l));
+    l.d = -1;
+    printBytes((char*)&l, sizeof(l));
 
+    punion p;
+    memset(&p, 0, sizeof(p));
+    p.u = -7;
+    p.s |= 2;
+    printBytes((char*)&p, sizeof(p));
 
-    basket bask;
-    potato a=10, b=20;
-    baskets c;
-    boiled result;
-    lunch_box e;
-    long multi;
-    test1 f;
-    test2 g;
-    tomato h;
-    carrot i;
-    romaine j;
-    iceberg k;
-
-    result = add(a, b);
-    multi = result * b;
-    bask.potate = a;
-    bask.boil = result;
-    c[0] = bask;
     return 0;
 }

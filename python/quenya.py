@@ -72,7 +72,7 @@ class Quenya(object):
             'symbol INTEGER NOT NULL,'
             'name TEXT NOT NULL,'
             'bit_offset INTEGER NOT NULL,'
-            'type INTEGER NOT NULL,'
+            'type INTEGER,'
             'multiplicity INTEGER NOT NULL,'
             'FOREIGN KEY (symbol) REFERENCES symbols(id),'
             'FOREIGN KEY (type) REFERENCES symbols(id),'
@@ -144,7 +144,11 @@ class ElfView(object):
         c.close()
         return enum_id
 
-    def insert_field(self, symbol_id, name, bit_offset, kind, multiplicity=0):
+    def insert_field(self, symbol_id, name, bit_offset, kind, multiplicity=0,
+                     allow_void=False):
+        if kind is None and not allow_void:
+            raise QuenyaError('Attempted to add a void field type without '
+                              'explicit override.')
         self.logger.debug('insert_field {} {} {} {}'.format(
             symbol_id, name, bit_offset, kind, multiplicity))
         c = self.database.cursor()
@@ -219,20 +223,21 @@ class ElfView(object):
                 from e
         return callback(dies, symbol.offset, typedef=typedef)
 
-    def _die_byte_size(self, die):
+    def _die_byte_size(self, die_offset):
         """Get the byte size of a DIE."""
-        self.logger.debug('_die_byte_size {}'.format(str(die)[:20]))
-        if isinstance(die, int):
+        self.logger.debug('_die_byte_size {}'.format(str(die_offset)[:20]))
+        if isinstance(die_offset, int):
             c = self.database.cursor()
-            c.execute('SELECT byte_size FROM symbols WHERE id=?', (die,))
+            c.execute('SELECT byte_size FROM symbols WHERE id=?', (die_offset,))
             size = c.fetchone()[0]
             c.close()
         else:
-            tag = die.tag
+            tag = die_offset.tag
             if tag == 'DW_TAG_base_type':
-                size = die.attributes['DW_AT_byte_size'].value
+                size = die_offset.attributes['DW_AT_byte_size'].value
             else:
-                raise QuenyaError('Can\'t get size of ' + tag)
+                raise QuenyaError('Can\'t get size of {} at DIE {}'.format(
+                    tag, hex(die_offset)))
         return size
 
     def _tag_array_type(self, dies, die_offset, typedef=None):
@@ -298,6 +303,11 @@ class ElfView(object):
 
     def _tag_structure_or_union_type(self, dies, die_offset, union,
                                      typedef=None):
+        """Insert a struct or a union.
+
+        Structs and unions have very similar DIE structures which is why these
+        two are combined.
+        """
         kind = 'union' if union else 'structure'
         die = dies[die_offset - self.cu_offset]
         try:
@@ -310,17 +320,25 @@ class ElfView(object):
                     kind, hex(die_offset)))
                 return
             symbol_name = typedef
-        size = die.attributes['DW_AT_byte_size'].value
-        symbol_id = self.insert_symbol(symbol_name, size)
+        byte_size = die.attributes['DW_AT_byte_size'].value
+        symbol_id = self.insert_symbol(symbol_name, byte_size)
         for child in die.iter_children():
             field_name = child.attributes['DW_AT_name'] \
                 .value.decode(ElfView.ENCODING)
+            self.logger.debug(kind + ' ' + symbol_name + '.' + field_name)
+            # TODO make it work with bit fields!
+            if 'DW_AT_bit_size' in child.attributes:
+                raise QuenyaError(kind + ' contains bit-fields at DIE ' +
+                                  hex(die_offset))
             byte_offset = 0 if union else \
                 child.attributes['DW_AT_data_member_location'].value
             bit_offset = byte_offset * 8
             field_type = child.attributes['DW_AT_type'].value
             field_type_id = self._symbol_requires(
                 dies, field_type, typedef=field_name)
+            if field_type_id is None:
+                raise QuenyaError('Field {} has no type at DIE {}'
+                                  .format(field_name, hex(die_offset)))
             self.insert_field(symbol_id, field_name, bit_offset, field_type_id)
         dies[die_offset - self.cu_offset] = symbol_id
         return symbol_id
@@ -329,15 +347,19 @@ class ElfView(object):
         self.logger.debug('_tag_pointer_type {}'.format(hex(die_offset)))
         die = dies[die_offset - self.cu_offset]
         if not typedef:
-            self.logger.debug('Skipping unnamed pointer type at {}'.format(
+            self.logger.debug('Skipping unnamed pointer type at DIE {}'.format(
                 hex(die_offset)))
             return
         pointer_name = typedef
         pointer_size = die.attributes['DW_AT_byte_size'].value
         pointer_type = die.attributes['DW_AT_type'].value
         pointer_type_id = self._symbol_requires(dies, pointer_type)
+        if pointer_type_id is None:
+            self.logger.warning('Pointer to unknown or void type at DIE {}.'
+                                .format(hex(die_offset)))
         symbol_id = self.insert_symbol(pointer_name, pointer_size)
-        self.insert_field(symbol_id, '[pointer]', 0, pointer_type_id)
+        self.insert_field(symbol_id, '[pointer]', 0, pointer_type_id,
+                          allow_void=True)
         dies[die_offset - self.cu_offset] = symbol_id
         return symbol_id
 
@@ -358,6 +380,10 @@ class ElfView(object):
         else:
             # typedef'd thing not inserted. Do that first.
             td_id = self._symbol_requires(dies, td_offset, typedef=name)
+            if td_id is None:
+                self.logger.debug('Skipping typedef to unknown type at DIE {}'
+                                  .format(hex(die_offset)))
+                return None
         # Get name of typedef base type.
         c = self.database.cursor()
         td_name = c.execute('SELECT name FROM symbols WHERE id=?', (td_id,)) \
@@ -397,7 +423,7 @@ def main():
     args = parser.parse_args()
 
     # Logging
-    level = logging.DEBUG if args.verbose else logging.WARNING
+    level = logging.DEBUG if args.verbose else logging.INFO
     logger = logging.getLogger()
     logger.setLevel(level)
     logger.addHandler(logging.StreamHandler())
@@ -409,12 +435,13 @@ def main():
     loaded = True
     for file in args.files:
         try:
+            logger.info('Adding ELF {}'.format(file))
             elvish.insert_elf(file)
         except QuenyaError as e:
             prred(e)
             loaded = False
     if not loaded:
-        pass  # exit(1)
+        exit(1)
 
     # Debug print database
     if args.sql:
