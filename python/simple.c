@@ -59,6 +59,11 @@ typedef struct tomato {
     int x;
 } tomato;
 
+// Struct typedef'd to different name as struct.
+typedef struct aubergine {
+    int x;
+} eggplant;
+
 // Declare, typedef, then define struct.
 struct carrot;
 typedef struct carrot carrot;
@@ -94,25 +99,7 @@ typedef union punion {
 
 
 int main() {
-    partial l;
-    memset(&l, 0, sizeof(l));
-    l.a = -1;
-    printBytes((char*)&l, sizeof(l));
-    memset(&l, 0, sizeof(l));
-    l.b = -1;
-    printBytes((char*)&l, sizeof(l));
-    memset(&l, 0, sizeof(l));
-    l.c = -1;
-    printBytes((char*)&l, sizeof(l));
-    memset(&l, 0, sizeof(l));
-    l.d = -1;
-    printBytes((char*)&l, sizeof(l));
-
-    punion p;
-    memset(&p, 0, sizeof(p));
-    p.u = -7;
-    p.s |= 2;
-    printBytes((char*)&p, sizeof(p));
+    eggplant e = {4};
 
     return 0;
 }

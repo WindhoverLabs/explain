@@ -4,7 +4,8 @@ Quenya is a tool for parsing the DWARF and DIE sections of an ELF file.
 Code Limitations:
     ELF files to be parsed must conform to the following requirements:
     1. All relevant typedefs, structs, and unions must be defined in the top-
-        level of a file. Quenya will not look inside function definitions.
+        level of a file. Quenya will not look inside function or namespace
+        definitions.
     2. Things which are typedef'd must have either the same tag as
         their typedef or be untagged.
         ie, "typedef struct A { int x; } B;" is disallowed.
@@ -17,6 +18,8 @@ import os
 import sqlite3
 
 import sys
+from logging import Logger
+
 from elftools.elf.elffile import ELFFile
 
 from ansi_color import *
@@ -29,8 +32,8 @@ class QuenyaError(Exception):
 class Quenya(object):
     """Quenya: the language of the High Elves"""
 
-    def __init__(self, db_file, logger=None):
-        self.database = sqlite3.connect(db_file)
+    def __init__(self, database, logger: Logger = None) -> None:
+        self.database = database
         self.logger = logger
         self.create_tables()
 
@@ -142,7 +145,7 @@ class ElfView(object):
         self.logger = logger
 
     def insert_bit_field(self, field_id, bit_size, bit_offset):
-        self.logger.debug('insert_bit_field({}, {}, {})'.format(
+        self.logger.debug('insert_bit_field({!r}, {}, {})'.format(
             field_id, bit_size, bit_offset))
         c = self.database.cursor()
         c.execute('INSERT INTO bit_fields(field, bit_size, bit_offset) VALUES '
@@ -150,7 +153,7 @@ class ElfView(object):
         c.close()
 
     def insert_enumeration(self, symbol_id, value, name):
-        self.logger.debug('insert_enumeration({}, {}, {})'.format(
+        self.logger.debug('insert_enumeration({!r}, {}, {})'.format(
             symbol_id, value, name))
         c = self.database.cursor()
         enum_id = c.execute('SELECT id FROM enumerations WHERE symbol=? AND '
@@ -166,7 +169,7 @@ class ElfView(object):
 
     def insert_field(self, symbol_id, name, byte_offset, kind, multiplicity=0,
                      allow_void=False):
-        self.logger.debug('insert_field({}, {}, {}, {})'.format(
+        self.logger.debug('insert_field({!r}, {}, {}, {})'.format(
             symbol_id, name, byte_offset, kind, multiplicity))
         if kind is None and not allow_void:
             raise QuenyaError('Attempted to add a void field type without '
@@ -181,7 +184,7 @@ class ElfView(object):
 
     def insert_symbol(self, name, byte_size):
         """Insert a symbol with name and byte_size."""
-        self.logger.debug('insert_symbol({}, byte_size={})'.format(
+        self.logger.debug('insert_symbol({!r}, byte_size={})'.format(
             name, byte_size))
         c = self.database.cursor()
         c.execute('INSERT INTO symbols(elf, name, byte_size)'
@@ -259,7 +262,7 @@ class ElfView(object):
         except KeyError as e:
             raise QuenyaError(
                 'symbol_requires can\'t handle {} at DIE 0x{:x}\n{}'
-                    .format(symbol.tag, die_offset, symbol)) from e
+                .format(symbol.tag, die_offset, symbol)) from e
         return callback(dies, symbol.offset, typedef=typedef)
 
     def _die_byte_size(self, die_offset):
@@ -287,7 +290,7 @@ class ElfView(object):
                 if not isinstance(upper_bound, int):
                     self.logger.warning(
                         'Array with unknown length declared at DIE 0x{:x}'
-                            .format(die_offset))
+                        .format(die_offset))
                     return -1
                 length = upper_bound + 1
                 if multiplicity is None:
@@ -363,7 +366,7 @@ class ElfView(object):
         tag = dies[die_offset - self.cu_offset].tag
         self.logger.debug(
             'Skipping known tag {} at 0x{:x} (typedef={!r})'
-                .format(tag, die_offset, typedef))
+            .format(tag, die_offset, typedef))
 
     def _tag_structure_type(self, dies, die_offset, typedef=None):
         """Insert a structure."""
@@ -546,8 +549,8 @@ def main():
     parser.add_argument('--database', default=':memory:',
                         help='use an existing database.')
     parser.add_argument('--json', help='JSON output file.')
-    parser.add_argument('--no-log', action='store_true',
-                        help='disables all logging to console')
+    parser.add_argument('-q', '--no-log', action='store_true',
+                        help='disables all console logging')
     parser.add_argument('--sql', action='store_true',
                         help='stdout the SQL database')
     parser.add_argument('-v', '--verbose', action='store_true',
@@ -564,14 +567,15 @@ def main():
     logger.addHandler(ch)
 
     # Open database
-    elvish = Quenya(args.database, logger=logger)
+    database = sqlite3.connect(args.database)
+    quenya = Quenya(database, logger=logger)
 
     # Insert ELF files
     loaded = True
     for file in args.files:
         try:
             logger.info('Adding ELF {}'.format(file))
-            elvish.insert_elf(file)
+            quenya.insert_elf(file)
         except Exception as e:
             if args.cont:
                 logger.exception('Problem adding ELF:')
@@ -582,8 +586,10 @@ def main():
 
     # Debug print database
     if args.sql:
-        for line in elvish.database.iterdump():
+        for line in quenya.database.iterdump():
             print(line)
+
+    database.close()
 
 
 if __name__ == '__main__':
