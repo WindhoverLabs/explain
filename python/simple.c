@@ -99,6 +99,7 @@ typedef union punion {
 
 
 int main() {
+    basket a;
     eggplant e = {4};
 
     return 0;

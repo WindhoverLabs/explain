@@ -16,25 +16,24 @@ import hashlib
 import logging
 import os
 import sqlite3
-
 import sys
 from logging import Logger
 
 from elftools.elf.elffile import ELFFile
 
-from ansi_color import *
+from loggable import Loggable
 
 
 class QuenyaError(Exception):
     """Base type for Quenya Errors."""
 
 
-class Quenya(object):
+class Quenya(Loggable):
     """Quenya: the language of the High Elves"""
 
     def __init__(self, database, logger: Logger = None) -> None:
+        super().__init__(logger)
         self.database = database
-        self.logger = logger
         self.create_tables()
 
     @staticmethod
@@ -102,6 +101,10 @@ class Quenya(object):
             ')')
         c.close()
 
+    @property
+    def dump(self):
+        return '\n'.join(line for line in self.database.iterdump())
+
     def insert_elf(self, file_name):
         """Insert an ELF file and symbols into Elvish. True if successful."""
         # Checksum and load ELF
@@ -136,16 +139,16 @@ class Quenya(object):
         return True
 
 
-class ElfView(object):
+class ElfView(Loggable):
     ENCODING = 'utf-8'
 
     def __init__(self, database, elf_id, logger=None):
+        super().__init__(logger)
         self.database = database
         self.elf_id = elf_id
-        self.logger = logger
 
     def insert_bit_field(self, field_id, bit_size, bit_offset):
-        self.logger.debug('insert_bit_field({!r}, {}, {})'.format(
+        self.debug('insert_bit_field({!r}, {}, {})'.format(
             field_id, bit_size, bit_offset))
         c = self.database.cursor()
         c.execute('INSERT INTO bit_fields(field, bit_size, bit_offset) VALUES '
@@ -153,7 +156,7 @@ class ElfView(object):
         c.close()
 
     def insert_enumeration(self, symbol_id, value, name):
-        self.logger.debug('insert_enumeration({!r}, {}, {})'.format(
+        self.debug('insert_enumeration({!r}, {}, {})'.format(
             symbol_id, value, name))
         c = self.database.cursor()
         enum_id = c.execute('SELECT id FROM enumerations WHERE symbol=? AND '
@@ -169,7 +172,7 @@ class ElfView(object):
 
     def insert_field(self, symbol_id, name, byte_offset, kind, multiplicity=0,
                      allow_void=False):
-        self.logger.debug('insert_field({!r}, {}, {}, {})'.format(
+        self.debug('insert_field({!r}, {}, {}, {})'.format(
             symbol_id, name, byte_offset, kind, multiplicity))
         if kind is None and not allow_void:
             raise QuenyaError('Attempted to add a void field type without '
@@ -184,7 +187,7 @@ class ElfView(object):
 
     def insert_symbol(self, name, byte_size):
         """Insert a symbol with name and byte_size."""
-        self.logger.debug('insert_symbol({!r}, byte_size={})'.format(
+        self.debug('insert_symbol({!r}, byte_size={})'.format(
             name, byte_size))
         c = self.database.cursor()
         c.execute('INSERT INTO symbols(elf, name, byte_size)'
@@ -212,7 +215,7 @@ class ElfView(object):
         dwarf = elf.get_dwarf_info()
 
         for i, cu in enumerate(dwarf.iter_CUs()):
-            self.logger.debug('CU #{}: {}'.format(i, cu.header))
+            self.debug('CU #{}: {}'.format(i, cu.header))
             top = cu.get_top_DIE()
             dies = {c.offset - cu.cu_offset: c for c in top.iter_children()}
             self.cu_offset = cu.cu_offset
@@ -221,20 +224,20 @@ class ElfView(object):
                 self._symbol_requires(dies, child.offset - self.cu_offset)
 
     def _symbol_requires(self, dies, die_offset, typedef=None):
-        self.logger.debug('_symbol_requires 0x{:x} (typedef={!r})'.format(
+        self.debug('_symbol_requires 0x{:x} (typedef={!r})'.format(
             die_offset, typedef))
         try:
             symbol = dies[die_offset]
         except KeyError:
             # Find possible enclosing tag
             closest = sorted(filter(lambda k: k < die_offset, dies.keys()))[-1]
-            self.logger.exception(
+            self.exception(
                 'Could not locate DIE at 0x{:x}. The previous tag that Quenya '
                 'recognizes is a {} at 0x{:x}.'
-                .format(die_offset, dies[closest].tag, closest))
+                    .format(die_offset, dies[closest].tag, closest))
             return None
         if isinstance(symbol, int):
-            self.logger.debug('Found inserted symbol id = {}'.format(symbol))
+            self.debug('Found inserted symbol id = {}'.format(symbol))
             return symbol
         known_tags = {
             'DW_TAG_array_type': self._tag_array_type,
@@ -262,12 +265,12 @@ class ElfView(object):
         except KeyError as e:
             raise QuenyaError(
                 'symbol_requires can\'t handle {} at DIE 0x{:x}\n{}'
-                .format(symbol.tag, die_offset, symbol)) from e
+                    .format(symbol.tag, die_offset, symbol)) from e
         return callback(dies, symbol.offset, typedef=typedef)
 
     def _die_byte_size(self, die_offset):
         """Get the byte size of a DIE."""
-        self.logger.debug('_die_byte_size {}'.format(str(die_offset)[:20]))
+        self.debug('_die_byte_size {}'.format(str(die_offset)[:20]))
         if isinstance(die_offset, int):
             c = self.database.cursor()
             c.execute('SELECT byte_size FROM symbols WHERE id=?', (die_offset,))
@@ -288,9 +291,9 @@ class ElfView(object):
             if child.tag == 'DW_TAG_subrange_type':
                 upper_bound = child.attributes['DW_AT_upper_bound'].value
                 if not isinstance(upper_bound, int):
-                    self.logger.warning(
+                    self.warning(
                         'Array with unknown length declared at DIE 0x{:x}'
-                        .format(die_offset))
+                            .format(die_offset))
                     return -1
                 length = upper_bound + 1
                 if multiplicity is None:
@@ -303,13 +306,13 @@ class ElfView(object):
 
     def _tag_array_type(self, dies, die_offset, typedef=None):
         """Insert an array."""
-        self.logger.debug('_tag_array_type 0x{:x}'.format(die_offset))
+        self.debug('_tag_array_type 0x{:x}'.format(die_offset))
         die = dies[die_offset - self.cu_offset]
         array_type = die.attributes['DW_AT_type'].value
         array_type_id = self._symbol_requires(dies, array_type)
         if array_type_id is None:
-            self.logger.warning('Skipping array of unknown type at DIE 0x{:x}'
-                                .format(die_offset))
+            self.warning('Skipping array of unknown type at DIE 0x{:x}'
+                         .format(die_offset))
             return None
         c = self.database.cursor()
         c.execute('SELECT name, byte_size FROM symbols WHERE id=?',
@@ -330,7 +333,7 @@ class ElfView(object):
 
     def _tag_base_type(self, dies, die_offset, typedef=None):
         """Insert a base type."""
-        self.logger.debug('_tag_base_type 0x{:x}'.format(die_offset))
+        self.debug('_tag_base_type 0x{:x}'.format(die_offset))
         die = dies[die_offset - self.cu_offset]
         name = die.attributes['DW_AT_name'].value.decode(ElfView.ENCODING)
         size = die.attributes['DW_AT_byte_size'].value
@@ -340,10 +343,10 @@ class ElfView(object):
 
     def _tag_enumeration_type(self, dies, die_offset, typedef=None):
         """Insert an enumeration."""
-        self.logger.debug('_tag_enumeration_type 0x{:x}'.format(die_offset))
+        self.debug('_tag_enumeration_type 0x{:x}'.format(die_offset))
         die = dies[die_offset - self.cu_offset]
         if not typedef:
-            self.logger.debug('Skipping direct enum at 0x{:x}'.format(
+            self.debug('Skipping direct enum at 0x{:x}'.format(
                 die_offset))
             return
         symbol_name = typedef
@@ -364,13 +367,13 @@ class ElfView(object):
         Unknown tags will raise a KeyError in symbol_requires.
         """
         tag = dies[die_offset - self.cu_offset].tag
-        self.logger.debug(
+        self.debug(
             'Skipping known tag {} at 0x{:x} (typedef={!r})'
-            .format(tag, die_offset, typedef))
+                .format(tag, die_offset, typedef))
 
     def _tag_structure_type(self, dies, die_offset, typedef=None):
         """Insert a structure."""
-        self.logger.debug('_tag_structure_type 0x{:x}'.format(die_offset))
+        self.debug('_tag_structure_type 0x{:x}'.format(die_offset))
         return self._tag_structure_or_union_type(
             dies, die_offset, typedef=typedef, union=False)
 
@@ -389,7 +392,7 @@ class ElfView(object):
         except KeyError:
             # Unnamed structure. typedef must be set to continue.
             if not typedef:
-                self.logger.debug('Skipping unnamed {} at 0x{:x}'.format(
+                self.debug('Skipping unnamed {} at 0x{:x}'.format(
                     kind, die_offset))
                 return None
             symbol_name = typedef
@@ -397,8 +400,8 @@ class ElfView(object):
             byte_size = die.attributes['DW_AT_byte_size'].value
         except KeyError:
             # Weird structs with no size deserve to be skipped.
-            self.logger.exception('{} has no size at DIE 0x{:x}'
-                                  .format(kind, die_offset))
+            self.exception('{} has no size at DIE 0x{:x}'
+                           .format(kind, die_offset))
             return None
         symbol_id = self.symbol(symbol_name)
         if symbol_id is not None:
@@ -413,20 +416,20 @@ class ElfView(object):
                     field_name = child.attributes['DW_AT_name'] \
                         .value.decode(ElfView.ENCODING)
                 except KeyError:
-                    self.logger.exception('Skipping field with no name at '
-                                          'DIE 0x{:x}'.format(child.offset))
+                    self.exception('Skipping field with no name at '
+                                   'DIE 0x{:x}'.format(child.offset))
                     continue
-                self.logger.debug('{} {}.{}'
-                                  .format(kind, symbol_name, field_name))
+                self.debug('{} {}.{}'
+                           .format(kind, symbol_name, field_name))
                 byte_offset = 0 if union else \
                     child.attributes['DW_AT_data_member_location'].value
                 field_type = child.attributes['DW_AT_type'].value
                 field_type_id = self._symbol_requires(
                     dies, field_type, typedef=field_name)
                 if field_type_id is None:
-                    self.logger.warning(
+                    self.warning(
                         'Skipping field {} with unknown type at DIE 0x{:x}'
-                        .format(field_name, die_offset))
+                            .format(field_name, die_offset))
                     continue
                 field_id = self.insert_field(
                     symbol_id, field_name, byte_offset, field_type_id)
@@ -442,20 +445,20 @@ class ElfView(object):
 
     def _tag_pointer_type(self, dies, die_offset, typedef=None):
         """Insert a pointer type."""
-        self.logger.debug('_tag_pointer_type 0x{:x}'.format(die_offset))
+        self.debug('_tag_pointer_type 0x{:x}'.format(die_offset))
         die = dies[die_offset - self.cu_offset]
         pointer_size = die.attributes['DW_AT_byte_size'].value
         try:
             pointer_type = die.attributes['DW_AT_type'].value
         except KeyError:
-            self.logger.warning('Pointer to void type at DIE 0x{:x}'
-                                .format(die_offset))
+            self.warning('Pointer to void type at DIE 0x{:x}'
+                         .format(die_offset))
             pointer_type_id = None
         else:
             pointer_type_id = self._symbol_requires(dies, pointer_type)
             if pointer_type_id is None:
-                self.logger.warning('Pointer to unknown type at DIE 0x{:x}.'
-                                    .format(die_offset))
+                self.warning('Pointer to unknown type at DIE 0x{:x}.'
+                             .format(die_offset))
         # Try to set name to "*pointer_type", otherwise to typedef.
         c = self.database.cursor()
         pointer_name = c.execute('SELECT name FROM symbols WHERE id=?',
@@ -463,9 +466,9 @@ class ElfView(object):
         c.close()
         if pointer_name is None:
             if not typedef:
-                self.logger.debug(
+                self.debug(
                     'Skipping unnamed pointer type at DIE 0x{:x}'
-                    .format(die_offset))
+                        .format(die_offset))
                 return None
             else:
                 pointer_name = typedef
@@ -485,14 +488,14 @@ class ElfView(object):
     def _tag_typedef(self, dies, die_offset, typedef=None):
         """Look at what typedef points to and define a symbol with the name of
         the typedef but the properties of what it points to."""
-        self.logger.debug('_tag_typedef 0x{:x}'.format(die_offset))
+        self.debug('_tag_typedef 0x{:x}'.format(die_offset))
         die = dies[die_offset - self.cu_offset]
         name = die.attributes['DW_AT_name'].value.decode(ElfView.ENCODING)
         try:
             td_offset = die.attributes['DW_AT_type'].value
         except KeyError:
-            self.logger.warning('Skipping typedef with no type at DIE 0x{:x}'
-                                .format(die_offset))
+            self.warning('Skipping typedef with no type at DIE 0x{:x}'
+                         .format(die_offset))
             return None
         try:
             td_die = dies[td_offset]
@@ -506,8 +509,8 @@ class ElfView(object):
             # typedef'd thing not inserted. Do that first.
             td_id = self._symbol_requires(dies, td_offset, typedef=name)
             if td_id is None:
-                self.logger.warning('Skipping typedef to unknown type at DIE '
-                                    '0x{:x}'.format(die_offset))
+                self.warning('Skipping typedef to unknown type at DIE '
+                             '0x{:x}'.format(die_offset))
                 return None
         # Get name of typedef base type.
         c = self.database.cursor()
@@ -533,7 +536,7 @@ class ElfView(object):
 
     def _tag_union_type(self, dies, die_offset, typedef=None):
         """Insert a union."""
-        self.logger.debug('_tag_union_type 0x{:x}'.format(die_offset))
+        self.debug('_tag_union_type 0x{:x}'.format(die_offset))
         return self._tag_structure_or_union_type(
             dies, die_offset, union=True, typedef=typedef)
 
@@ -586,8 +589,7 @@ def main():
 
     # Debug print database
     if args.sql:
-        for line in quenya.database.iterdump():
-            print(line)
+        print(quenya.dump)
 
     database.close()
 
