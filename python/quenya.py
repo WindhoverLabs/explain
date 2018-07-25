@@ -1,10 +1,13 @@
 """
+Quenya is a tool for parsing the DWARF and DIE sections of an ELF file.
+
 Code Limitations:
     ELF files to be parsed must conform to the following requirements:
     1. All relevant typedefs, structs, and unions must be defined in the top-
         level of a file. Quenya will not look inside function definitions.
-    2. Structs and unions which are typedef'd must have either the same tag as
+    2. Things which are typedef'd must have either the same tag as
         their typedef or be untagged.
+        ie, "typedef struct A { int x; } B;" is disallowed.
 """
 
 import argparse
@@ -13,6 +16,7 @@ import logging
 import os
 import sqlite3
 
+import sys
 from elftools.elf.elffile import ELFFile
 
 from ansi_color import *
@@ -23,7 +27,7 @@ class QuenyaError(Exception):
 
 
 class Quenya(object):
-    """Quenya, the language of the High Elves"""
+    """Quenya: the language of the High Elves"""
 
     def __init__(self, db_file, logger=None):
         self.database = sqlite3.connect(db_file)
@@ -46,7 +50,6 @@ class Quenya(object):
         return b'md5' + check.digest()
 
     def create_tables(self):
-        # Note: sqlite does not store binary data. Must use sqlite.Binary
         c = self.database.cursor()
         c.execute(
             'CREATE TABLE IF NOT EXISTS elfs ('
@@ -71,13 +74,20 @@ class Quenya(object):
             'id INTEGER PRIMARY KEY,'
             'symbol INTEGER NOT NULL,'
             'name TEXT NOT NULL,'
-            'bit_offset INTEGER NOT NULL,'
+            'byte_offset INTEGER NOT NULL,'
             'type INTEGER,'
             'multiplicity INTEGER NOT NULL,'
             'FOREIGN KEY (symbol) REFERENCES symbols(id),'
             'FOREIGN KEY (type) REFERENCES symbols(id),'
             'UNIQUE (symbol, name)'
             ')')
+        c.execute(
+            'CREATE TABLE IF NOT EXISTS bit_fields('
+            'field INTEGER PRIMARY KEY,'
+            'bit_size INTEGER NOT NULL,'
+            'bit_offset INTEGER NOT NULL,'
+            'FOREIGN KEY (field) REFERENCES fields(id)'
+            ') WITHOUT ROWID')
         c.execute(
             'CREATE TABLE IF NOT EXISTS enumerations('
             'id INTEGER PRIMARY KEY,'
@@ -104,6 +114,8 @@ class Quenya(object):
         # Insert ELF file into elfs table.
         c = self.database.cursor()
         try:
+            # Note: sqlite does not store binary data. Must use sqlite.Binary
+            # to pass in checksum.
             c.execute('INSERT INTO elfs(name, checksum, little_endian) '
                       'VALUES (?, ?, ?)',
                       (base, sqlite3.Binary(checksum), elf.little_endian))
@@ -117,7 +129,7 @@ class Quenya(object):
         # Insert symbols from ELF
         elf_id = c.lastrowid
         elf_view = ElfView(self.database, elf_id, self.logger)
-        elf_view.insert_symbols(elf)
+        elf_view.insert_symbols_from_elf(elf)
         return True
 
 
@@ -129,8 +141,16 @@ class ElfView(object):
         self.elf_id = elf_id
         self.logger = logger
 
+    def insert_bit_field(self, field_id, bit_size, bit_offset):
+        self.logger.debug('insert_bit_field({}, {}, {})'.format(
+            field_id, bit_size, bit_offset))
+        c = self.database.cursor()
+        c.execute('INSERT INTO bit_fields(field, bit_size, bit_offset) VALUES '
+                  '(?, ?, ?)', (field_id, bit_size, bit_offset))
+        c.close()
+
     def insert_enumeration(self, symbol_id, value, name):
-        self.logger.debug('insert_enumeration {} {} {}'.format(
+        self.logger.debug('insert_enumeration({}, {}, {})'.format(
             symbol_id, value, name))
         c = self.database.cursor()
         enum_id = c.execute('SELECT id FROM enumerations WHERE symbol=? AND '
@@ -144,42 +164,47 @@ class ElfView(object):
         c.close()
         return enum_id
 
-    def insert_field(self, symbol_id, name, bit_offset, kind, multiplicity=0,
+    def insert_field(self, symbol_id, name, byte_offset, kind, multiplicity=0,
                      allow_void=False):
+        self.logger.debug('insert_field({}, {}, {}, {})'.format(
+            symbol_id, name, byte_offset, kind, multiplicity))
         if kind is None and not allow_void:
             raise QuenyaError('Attempted to add a void field type without '
                               'explicit override.')
-        self.logger.debug('insert_field {} {} {} {}'.format(
-            symbol_id, name, bit_offset, kind, multiplicity))
         c = self.database.cursor()
-        field_id = c.execute('SELECT id FROM fields WHERE symbol=? AND name=?',
-                             (symbol_id, name)).fetchone()
-        if field_id is None:
-            c.execute('INSERT INTO fields(symbol, name, bit_offset, type,'
-                      'multiplicity) VALUES (?, ?, ?, ?, ?)',
-                      (symbol_id, name, bit_offset, kind, multiplicity))
-            field_id = c.lastrowid
-        else:
-            field_id = field_id[0]
+        c.execute('INSERT INTO fields(symbol, name, byte_offset, type,'
+                  'multiplicity) VALUES (?, ?, ?, ?, ?)',
+                  (symbol_id, name, byte_offset, kind, multiplicity))
+        field_id = c.lastrowid
         c.close()
         return field_id
 
     def insert_symbol(self, name, byte_size):
         """Insert a symbol with name and byte_size."""
-        self.logger.debug('insert_symbol {} (size={})'.format(name, byte_size))
+        self.logger.debug('insert_symbol({}, byte_size={})'.format(
+            name, byte_size))
         c = self.database.cursor()
-        symbol_id = c.execute('SELECT id FROM symbols WHERE elf=? AND '
-                              'name=?', (self.elf_id, name)).fetchone()
-        if symbol_id is None:
-            c.execute('INSERT INTO symbols(elf, name, byte_size)'
-                      'VALUES(?, ?, ?)', (self.elf_id, name, byte_size))
-            symbol_id = c.lastrowid
-        else:
-            symbol_id = symbol_id[0]
+        c.execute('INSERT INTO symbols(elf, name, byte_size)'
+                  'VALUES(?, ?, ?)', (self.elf_id, name, byte_size))
+        symbol_id = c.lastrowid
         c.close()
         return symbol_id
 
-    def insert_symbols(self, elf):
+    def field(self, symbol_id, name):
+        c = self.database.cursor()
+        field_id = c.execute('SELECT id FROM fields WHERE symbol=? AND name=?',
+                             (symbol_id, name)).fetchone()
+        c.close()
+        return field_id[0] if field_id is not None else None
+
+    def symbol(self, name):
+        c = self.database.cursor()
+        symbol_id = c.execute('SELECT id FROM symbols WHERE elf=? AND '
+                              'name=?', (self.elf_id, name)).fetchone()
+        c.close()
+        return symbol_id[0] if symbol_id is not None else None
+
+    def insert_symbols_from_elf(self, elf):
         # print(elf.header)
         dwarf = elf.get_dwarf_info()
 
@@ -192,10 +217,22 @@ class ElfView(object):
             for child in top.iter_children():
                 self._symbol_requires(dies, child.offset - self.cu_offset)
 
-    def _symbol_requires(self, dies, offset, typedef=None):
-        self.logger.debug('_symbol_requires {} (typedef={!r})'.format(
-            hex(offset), typedef))
-        # print(die_dict)
+    def _symbol_requires(self, dies, die_offset, typedef=None):
+        self.logger.debug('_symbol_requires 0x{:x} (typedef={!r})'.format(
+            die_offset, typedef))
+        try:
+            symbol = dies[die_offset]
+        except KeyError:
+            # Find possible enclosing tag
+            closest = sorted(filter(lambda k: k < die_offset, dies.keys()))[-1]
+            self.logger.exception(
+                'Could not locate DIE at 0x{:x}. The previous tag that Quenya '
+                'recognizes is a {} at 0x{:x}.'
+                .format(die_offset, dies[closest].tag, closest))
+            return None
+        if isinstance(symbol, int):
+            self.logger.debug('Found inserted symbol id = {}'.format(symbol))
+            return symbol
         known_tags = {
             'DW_TAG_array_type': self._tag_array_type,
             'DW_TAG_base_type': self._tag_base_type,
@@ -207,20 +244,22 @@ class ElfView(object):
             # Known Skipped Tags
             'DW_TAG_class_type': self._tag_skip,
             'DW_TAG_const_type': self._tag_skip,
+            'DW_TAG_imported_module': self._tag_skip,
+            'DW_TAG_namespace': self._tag_skip,
             'DW_TAG_reference_type': self._tag_skip,
+            'DW_TAG_rvalue_reference_type': self._tag_skip,
+            'DW_TAG_restrict_type': self._tag_skip,
             'DW_TAG_subprogram': self._tag_skip,
             'DW_TAG_subroutine_type': self._tag_skip,
+            'DW_TAG_unspecified_type': self._tag_skip,
             'DW_TAG_variable': self._tag_skip,
         }
-        symbol = dies[offset]
-        if isinstance(symbol, int):
-            self.logger.debug('Found inserted symbol id = {}'.format(symbol))
-            return symbol
         try:
             callback = known_tags[symbol.tag]
         except KeyError as e:
-            raise QuenyaError('symbol_requires can\'t handle\n' + str(symbol)) \
-                from e
+            raise QuenyaError(
+                'symbol_requires can\'t handle {} at DIE 0x{:x}\n{}'
+                    .format(symbol.tag, die_offset, symbol)) from e
         return callback(dies, symbol.offset, typedef=typedef)
 
     def _die_byte_size(self, die_offset):
@@ -236,56 +275,80 @@ class ElfView(object):
             if tag == 'DW_TAG_base_type':
                 size = die_offset.attributes['DW_AT_byte_size'].value
             else:
-                raise QuenyaError('Can\'t get size of {} at DIE {}'.format(
-                    tag, hex(die_offset)))
+                raise QuenyaError('Can\'t get size of {} at DIE 0x{:x}'.format(
+                    tag, die_offset))
         return size
 
+    def _tag_array_type_multiplicity(self, die, die_offset):
+        multiplicity = None
+        for child in die.iter_children():
+            if child.tag == 'DW_TAG_subrange_type':
+                upper_bound = child.attributes['DW_AT_upper_bound'].value
+                if not isinstance(upper_bound, int):
+                    self.logger.warning(
+                        'Array with unknown length declared at DIE 0x{:x}'
+                            .format(die_offset))
+                    return -1
+                length = upper_bound + 1
+                if multiplicity is None:
+                    multiplicity = length
+                else:
+                    multiplicity *= length
+            else:
+                raise QuenyaError('Unknown array child at:\n' + str(die))
+        return multiplicity
+
     def _tag_array_type(self, dies, die_offset, typedef=None):
-        self.logger.debug('_tag_array_type {}'.format(hex(die_offset)))
+        """Insert an array."""
+        self.logger.debug('_tag_array_type 0x{:x}'.format(die_offset))
         die = dies[die_offset - self.cu_offset]
         array_type = die.attributes['DW_AT_type'].value
         array_type_id = self._symbol_requires(dies, array_type)
+        if array_type_id is None:
+            self.logger.warning('Skipping array of unknown type at DIE 0x{:x}'
+                                .format(die_offset))
+            return None
         c = self.database.cursor()
         c.execute('SELECT name, byte_size FROM symbols WHERE id=?',
                   (array_type_id,))
         array_type_name, unit_byte_size = c.fetchone()
         c.close()
-        multiplicity = -1
-        for child in die.iter_children():
-            if multiplicity != -1:
-                raise QuenyaError('Multiple array children at:\n' + str(die))
-            if child.tag == 'DW_TAG_subrange_type':
-                multiplicity = child.attributes['DW_AT_upper_bound'].value + 1
-            else:
-                raise QuenyaError('Unknown array child at:\n' + str(die))
+        multiplicity = self._tag_array_type_multiplicity(die, die_offset)
         array_name = 'array_{}_{}'.format(array_type_name, multiplicity)
         symbol_size = unit_byte_size * multiplicity
+        symbol_id = self.symbol(array_name)
+        if symbol_id is not None:
+            # Symbol exists
+            return symbol_id
         symbol_id = self.insert_symbol(array_name, symbol_size)
         self.insert_field(symbol_id, '[array]', 0, array_type_id, multiplicity)
         dies[die_offset - self.cu_offset] = symbol_id
         return symbol_id
 
     def _tag_base_type(self, dies, die_offset, typedef=None):
-        self.logger.debug('_tag_base_type {}'.format(hex(die_offset)))
+        """Insert a base type."""
+        self.logger.debug('_tag_base_type 0x{:x}'.format(die_offset))
         die = dies[die_offset - self.cu_offset]
         name = die.attributes['DW_AT_name'].value.decode(ElfView.ENCODING)
         size = die.attributes['DW_AT_byte_size'].value
-        symbol_id = self.insert_symbol(name, size)
+        symbol_id = self.symbol(name) or self.insert_symbol(name, size)
         dies[die_offset - self.cu_offset] = symbol_id
         return symbol_id
 
     def _tag_enumeration_type(self, dies, die_offset, typedef=None):
-        self.logger.debug('_tag_enumeration_type {}'.format(hex(die_offset)))
+        """Insert an enumeration."""
+        self.logger.debug('_tag_enumeration_type 0x{:x}'.format(die_offset))
         die = dies[die_offset - self.cu_offset]
         if not typedef:
-            self.logger.debug('Skipping direct enum at {}'.format(
-                hex(die_offset)))
+            self.logger.debug('Skipping direct enum at 0x{:x}'.format(
+                die_offset))
             return
         symbol_name = typedef
         symbol_byte_size = die.attributes['DW_AT_byte_size'].value
-        symbol_id = self.insert_symbol(symbol_name, symbol_byte_size)
+        symbol_id = self.symbol(symbol_name) \
+                    or self.insert_symbol(symbol_name, symbol_byte_size)
         for child in die.iter_children():
-            cname = child.attributes['DW_AT_name']\
+            cname = child.attributes['DW_AT_name'] \
                 .value.decode(ElfView.ENCODING)
             cvalue = child.attributes['DW_AT_const_value'].value
             self.insert_enumeration(symbol_id, cvalue, cname)
@@ -293,11 +356,18 @@ class ElfView(object):
         return symbol_id
 
     def _tag_skip(self, dies, die_offset, typedef=None):
-        self.logger.debug('Skipping known tag {} at {} (typedef={!r})'.format(
-            dies[die_offset - self.cu_offset].tag, hex(die_offset), typedef))
+        """Skip over the known tag.
+
+        Unknown tags will raise a KeyError in symbol_requires.
+        """
+        tag = dies[die_offset - self.cu_offset].tag
+        self.logger.debug(
+            'Skipping known tag {} at 0x{:x} (typedef={!r})'
+                .format(tag, die_offset, typedef))
 
     def _tag_structure_type(self, dies, die_offset, typedef=None):
-        self.logger.debug('_tag_structure_type {}'.format(hex(die_offset)))
+        """Insert a structure."""
+        self.logger.debug('_tag_structure_type 0x{:x}'.format(die_offset))
         return self._tag_structure_or_union_type(
             dies, die_offset, typedef=typedef, union=False)
 
@@ -316,47 +386,93 @@ class ElfView(object):
         except KeyError:
             # Unnamed structure. typedef must be set to continue.
             if not typedef:
-                self.logger.debug('Skipping unnamed {} at {}'.format(
-                    kind, hex(die_offset)))
-                return
+                self.logger.debug('Skipping unnamed {} at 0x{:x}'.format(
+                    kind, die_offset))
+                return None
             symbol_name = typedef
-        byte_size = die.attributes['DW_AT_byte_size'].value
+        try:
+            byte_size = die.attributes['DW_AT_byte_size'].value
+        except KeyError:
+            # Weird structs with no size deserve to be skipped.
+            self.logger.exception('{} has no size at DIE 0x{:x}'
+                                  .format(kind, die_offset))
+            return None
+        symbol_id = self.symbol(symbol_name)
+        if symbol_id is not None:
+            # Already exists.
+            return symbol_id
         symbol_id = self.insert_symbol(symbol_name, byte_size)
-        for child in die.iter_children():
-            field_name = child.attributes['DW_AT_name'] \
-                .value.decode(ElfView.ENCODING)
-            self.logger.debug(kind + ' ' + symbol_name + '.' + field_name)
-            # TODO make it work with bit fields!
-            if 'DW_AT_bit_size' in child.attributes:
-                raise QuenyaError(kind + ' contains bit-fields at DIE ' +
-                                  hex(die_offset))
-            byte_offset = 0 if union else \
-                child.attributes['DW_AT_data_member_location'].value
-            bit_offset = byte_offset * 8
-            field_type = child.attributes['DW_AT_type'].value
-            field_type_id = self._symbol_requires(
-                dies, field_type, typedef=field_name)
-            if field_type_id is None:
-                raise QuenyaError('Field {} has no type at DIE {}'
-                                  .format(field_name, hex(die_offset)))
-            self.insert_field(symbol_id, field_name, bit_offset, field_type_id)
+        # Have to replace DIE lookup here in case of recursive struct.
         dies[die_offset - self.cu_offset] = symbol_id
+        for child in die.iter_children():
+            if child.tag == 'DW_TAG_member':
+                try:
+                    field_name = child.attributes['DW_AT_name'] \
+                        .value.decode(ElfView.ENCODING)
+                except KeyError:
+                    self.logger.exception('Skipping field with no name at '
+                                          'DIE 0x{:x}'.format(child.offset))
+                    continue
+                self.logger.debug('{} {}.{}'
+                                  .format(kind, symbol_name, field_name))
+                byte_offset = 0 if union else \
+                    child.attributes['DW_AT_data_member_location'].value
+                field_type = child.attributes['DW_AT_type'].value
+                field_type_id = self._symbol_requires(
+                    dies, field_type, typedef=field_name)
+                if field_type_id is None:
+                    self.logger.warning(
+                        'Skipping field {} with unknown type at DIE 0x{:x}'
+                        .format(field_name, die_offset))
+                    continue
+                field_id = self.insert_field(
+                    symbol_id, field_name, byte_offset, field_type_id)
+                # Insert bit field entry if appropriate.
+                if 'DW_AT_bit_size' in child.attributes:
+                    bit_size = child.attributes['DW_AT_bit_size'].value
+                    bit_offset = child.attributes['DW_AT_bit_offset'].value
+                    self.insert_bit_field(field_id, bit_size, bit_offset)
+            else:
+                # Sometimes there are nested struct/union definitions.
+                dies[child.offset] = child
         return symbol_id
 
     def _tag_pointer_type(self, dies, die_offset, typedef=None):
-        self.logger.debug('_tag_pointer_type {}'.format(hex(die_offset)))
+        """Insert a pointer type."""
+        self.logger.debug('_tag_pointer_type 0x{:x}'.format(die_offset))
         die = dies[die_offset - self.cu_offset]
-        if not typedef:
-            self.logger.debug('Skipping unnamed pointer type at DIE {}'.format(
-                hex(die_offset)))
-            return
-        pointer_name = typedef
         pointer_size = die.attributes['DW_AT_byte_size'].value
-        pointer_type = die.attributes['DW_AT_type'].value
-        pointer_type_id = self._symbol_requires(dies, pointer_type)
-        if pointer_type_id is None:
-            self.logger.warning('Pointer to unknown or void type at DIE {}.'
-                                .format(hex(die_offset)))
+        try:
+            pointer_type = die.attributes['DW_AT_type'].value
+        except KeyError:
+            self.logger.warning('Pointer to void type at DIE 0x{:x}'
+                                .format(die_offset))
+            pointer_type_id = None
+        else:
+            pointer_type_id = self._symbol_requires(dies, pointer_type)
+            if pointer_type_id is None:
+                self.logger.warning('Pointer to unknown type at DIE 0x{:x}.'
+                                    .format(die_offset))
+        # Try to set name to "*pointer_type", otherwise to typedef.
+        c = self.database.cursor()
+        pointer_name = c.execute('SELECT name FROM symbols WHERE id=?',
+                                 (pointer_type_id,)).fetchone()
+        c.close()
+        if pointer_name is None:
+            if not typedef:
+                self.logger.debug(
+                    'Skipping unnamed pointer type at DIE 0x{:x}'
+                    .format(die_offset))
+                return None
+            else:
+                pointer_name = typedef
+        else:
+            pointer_name = '*' + pointer_name[0]
+
+        symbol_id = self.symbol(pointer_name)
+        if symbol_id is not None:
+            # Symbol exists
+            return symbol_id
         symbol_id = self.insert_symbol(pointer_name, pointer_size)
         self.insert_field(symbol_id, '[pointer]', 0, pointer_type_id,
                           allow_void=True)
@@ -366,14 +482,20 @@ class ElfView(object):
     def _tag_typedef(self, dies, die_offset, typedef=None):
         """Look at what typedef points to and define a symbol with the name of
         the typedef but the properties of what it points to."""
-        self.logger.debug('_tag_typedef {}'.format(hex(die_offset)))
+        self.logger.debug('_tag_typedef 0x{:x}'.format(die_offset))
         die = dies[die_offset - self.cu_offset]
         name = die.attributes['DW_AT_name'].value.decode(ElfView.ENCODING)
-        td_offset = die.attributes['DW_AT_type'].value
+        try:
+            td_offset = die.attributes['DW_AT_type'].value
+        except KeyError:
+            self.logger.warning('Skipping typedef with no type at DIE 0x{:x}'
+                                .format(die_offset))
+            return None
         try:
             td_die = dies[td_offset]
         except KeyError:
-            raise QuenyaError('Cannot find DIE at offset ' + hex(td_offset))
+            raise QuenyaError('Cannot find DIE at offset 0x{:x}'
+                              .format(td_offset))
         if isinstance(td_die, int):
             # typedef'd thing already inserted, add reference.
             td_id = td_die
@@ -381,8 +503,8 @@ class ElfView(object):
             # typedef'd thing not inserted. Do that first.
             td_id = self._symbol_requires(dies, td_offset, typedef=name)
             if td_id is None:
-                self.logger.debug('Skipping typedef to unknown type at DIE {}'
-                                  .format(hex(die_offset)))
+                self.logger.warning('Skipping typedef to unknown type at DIE '
+                                    '0x{:x}'.format(die_offset))
                 return None
         # Get name of typedef base type.
         c = self.database.cursor()
@@ -395,14 +517,20 @@ class ElfView(object):
         if td_name == name:
             symbol_id = td_id
         else:
-            byte_size = self._die_byte_size(td_id)
-            symbol_id = self.insert_symbol(name, byte_size)
+            symbol_id = self.symbol(name)
+            if symbol_id is not None:
+                # Symbol exists
+                return symbol_id
+            if symbol_id is None:
+                byte_size = self._die_byte_size(td_id)
+                symbol_id = self.insert_symbol(name, byte_size)
             self.insert_field(symbol_id, 'typedef', 0, td_id)
         dies[die_offset - self.cu_offset] = symbol_id
         return symbol_id
 
     def _tag_union_type(self, dies, die_offset, typedef=None):
-        self.logger.debug('_tag_union_type {}'.format(hex(die_offset)))
+        """Insert a union."""
+        self.logger.debug('_tag_union_type 0x{:x}'.format(die_offset))
         return self._tag_structure_or_union_type(
             dies, die_offset, union=True, typedef=typedef)
 
@@ -411,11 +539,15 @@ def main():
     parser = argparse.ArgumentParser(
         description='Quenya can understand ELF files and create tables or '
                     'output files with symbol and field names.')
+    parser.add_argument('-c', '--continue', action='store_true', dest='cont',
+                        help='continue adding ELF files if one fails')
     parser.add_argument('--files', nargs='*', default=[],
                         help='elf file(s) to load.')
     parser.add_argument('--database', default=':memory:',
                         help='use an existing database.')
     parser.add_argument('--json', help='JSON output file.')
+    parser.add_argument('--no-log', action='store_true',
+                        help='disables all logging to console')
     parser.add_argument('--sql', action='store_true',
                         help='stdout the SQL database')
     parser.add_argument('-v', '--verbose', action='store_true',
@@ -425,8 +557,11 @@ def main():
     # Logging
     level = logging.DEBUG if args.verbose else logging.INFO
     logger = logging.getLogger()
-    logger.setLevel(level)
-    logger.addHandler(logging.StreamHandler())
+    logger.setLevel(60 if args.no_log else level)
+    ch = logging.StreamHandler(stream=sys.stdout)
+    formatter = logging.Formatter('%(levelname)s - %(message)s')
+    ch.setFormatter(formatter)
+    logger.addHandler(ch)
 
     # Open database
     elvish = Quenya(args.database, logger=logger)
@@ -437,9 +572,11 @@ def main():
         try:
             logger.info('Adding ELF {}'.format(file))
             elvish.insert_elf(file)
-        except QuenyaError as e:
-            prred(e)
-            loaded = False
+        except Exception as e:
+            if args.cont:
+                logger.exception('Problem adding ELF:')
+            else:
+                raise e
     if not loaded:
         exit(1)
 
