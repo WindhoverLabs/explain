@@ -40,6 +40,7 @@ typedef struct basket {
     lunch_box lunch;
     struct side {
         potato more;
+        boiled somany;
     } side;
 } basket;
 
@@ -104,8 +105,14 @@ typedef union punion {
 
 
 int main() {
-    basket a;
+    basket a = {0};
     eggplant e = {4};
+
+    a.potate = 0xFF;
+    a.lotsa[0] = 0xFF;
+    a.side.more = 0xFFFFFFFF;
+    a.side.somany = 0xFF00;
+    printBytes((char*)&a, sizeof(a));
 
     return 0;
 }

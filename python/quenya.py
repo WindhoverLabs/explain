@@ -125,12 +125,12 @@ class Quenya(Loggable):
             c.execute('INSERT INTO elfs(name, checksum, little_endian) '
                       'VALUES (?, ?, ?)',
                       (base, sqlite3.Binary(checksum), elf.little_endian))
-        except sqlite3.IntegrityError:
+        except sqlite3.IntegrityError as e:
             c.execute('SELECT date FROM elfs WHERE name=? AND checksum=?',
                       (base, sqlite3.Binary(checksum)))
             duplicate = c.fetchone()
             raise QuenyaError('{!r} matched previously loaded ELF uploaded on '
-                              '{}'.format(base, duplicate[0]))
+                              '{}'.format(base, duplicate[0])) from e
 
         # Insert symbols from ELF
         elf_id = c.lastrowid
@@ -178,7 +178,7 @@ class ElfView(Loggable):
             raise QuenyaError('Attempted to add a void field type without '
                               'explicit override.')
         c = self.database.cursor()
-        c.execute('INSERT INTO fields(symbol, name, byte_offset, type,'
+        c.execute('INSERT INTO fields(symbol, name, byte_offset, type, '
                   'multiplicity) VALUES (?, ?, ?, ?, ?)',
                   (symbol_id, name, byte_offset, kind, multiplicity))
         field_id = c.lastrowid
