@@ -23,12 +23,24 @@ void printBytes(char* address, int numBits) {
 typedef int potato;
 typedef potato boiled;
 
+// Union
+typedef union lunch_box {
+    potato potato;
+    potato array_potatoes[2];
+    potato* potential_potato;
+    potato (*p_array_potatoes)[10];
+} lunch_box;
+
 // struct named basket assigned to typedef
 // named basket. Duplicate name issue.
 typedef struct basket {
     potato potate;
     boiled boil;
     potato lotsa[2];
+    lunch_box lunch;
+    struct side {
+        potato more;
+    } side;
 } basket;
 
 // Array typedef, array has no name so anything
@@ -36,13 +48,6 @@ typedef struct basket {
 // which changes per compilation unit.
 typedef basket baskets[10];
 typedef basket baskets2[10];
-
-typedef union lunch_box {
-    potato potato;
-    potato array_potatoes[2];
-    potato* potential_potato;
-    potato (*p_array_potatoes)[10];
-} lunch_box;
 
 // Two identical structs create separate debug entries.
 typedef struct {

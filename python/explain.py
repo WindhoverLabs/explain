@@ -26,8 +26,8 @@ class SQLiteRow(SQLiteBacked):
         try:
             return self.query1(item)
         except sqlite3.OperationalError:
-            raise AttributeError('SQLiteRow has no attribute nor backing column'
-                                 ' ' + repr(item))
+            raise AttributeError(self.__class__.__name__ + ' has no attribute '
+                                 'nor backing column ' + repr(item))
 
     def __str__(self):
         return '{}({})'.format(
@@ -72,10 +72,28 @@ class Elf(SQLiteRow):
                                .format(symbol_name, self.name))
         return Symbol(self.database, symbol_id[0])
 
+    def symbols(self):
+        symbols = self.database.execute(
+            'SELECT id FROM symbols WHERE elf=?', (self.row,)).fetchall()
+        for symbol in symbols:
+            yield Symbol(self.database, symbol[0])
+
 
 class Symbol(SQLiteRow):
     def __init__(self, database, symbol_id=None):
         super().__init__(database, 'symbols', symbol_id)
+
+    @property
+    def array(self):
+        try:
+            field = next(self.fields())
+        except StopIteration:
+            return None
+        return field.multiplicity
+
+    @property
+    def base_type(self):
+        return len(list(self.fields())) == 0
 
     def fields(self):
         c = self.database.execute(
@@ -83,28 +101,27 @@ class Symbol(SQLiteRow):
         for field in c.fetchall():
             yield Field(self.database, field[0])
 
-    @property
-    def base_type(self):
-        return len(list(self.fields())) == 0
-
-    def print_tree(self, level=0):
+    def print_tree(self, level=0, max_level=float('inf')):
+        if level > max_level:
+            return
         indstr = '| '
         indent = indstr * level
-        print('{}symbol {}'.format(indent, self.name))
+        print('{}symbol {} size={}'.format(indent, self.name, self.byte_size))
         if self.base_type:
             return
         indent = indstr * (level + 1)
         typedef = self.typedef
         array = self.array
         if typedef:
-            print(indent + 'typedef ')
-            return typedef.print_tree(level + 2)
+            return typedef.print_tree(level + 1, max_level=max_level)
         if array:
             # TODO do array things
+            pass
         for field in self.fields():
-            print('{}field {} offset {}'.format(
-                indent, field.name, field.byte_offset))
-            field.type.print_tree(level + 2)
+            print('{}field {} {} x{}'.format(
+                indent, field.byte_offset, field.name, field.multiplicity))
+            if field.name != '[pointer]':
+                field.type.print_tree(level + 2, max_level=max_level)
 
     @property
     def typedef(self):
@@ -140,16 +157,19 @@ class BitField(SQLiteRow):
 def main():
     parser = argparse.ArgumentParser(
         description='Searches a Quenya database for a symbol.')
-    parser.add_argument('file', help='ELF file from the database.')
-    parser.add_argument('symbol')
     # parser.add_argument('--cache')
     parser.add_argument('--database', default=':memory:',
-                        help='use an existing database.')
+                        help='use an existing database')
     parser.add_argument('--load', action='store_true',
                         help='load a new ELF file if an existing database is '
                              'chosen')
     parser.add_argument('--reentrant', action='store_true',
                         help='ignore any duplicate ELFs')
+    parser.add_argument('file', help='ELF file from the database')
+    symbol = parser.add_mutually_exclusive_group(required=True)
+    symbol.add_argument('-a', '--all', action='store_true',
+                        help='output all symbols')
+    symbol.add_argument('--symbol', help='the symbol name to look at')
 
     args = parser.parse_args()
 
@@ -159,8 +179,10 @@ def main():
         quenya.insert_elf(args.file)
 
     elf = Elf.from_name(db, args.file)
-    symbol = elf.symbol(symbol_name=args.symbol)
-    symbol.print_tree()
+    symbols = (elf.symbol(symbol_name=args.symbol),) if not args.all else \
+        elf.symbols()
+    for symbol in symbols:
+        symbol.print_tree()
 
 
 if __name__ == '__main__':
