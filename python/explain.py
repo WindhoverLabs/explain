@@ -8,6 +8,7 @@ from elf_reader import ElfReader
 
 
 class ExplainError(Exception):
+    """Base class for all Explain Errors."""
     pass
 
 
@@ -284,10 +285,8 @@ def json_output(file_stream, elf, symbols):
 def main():
     parser = argparse.ArgumentParser(
         description='Searches a Quenya database for a symbol.')
+    parser.add_argument('file', help='ELF file from the database')
     # parser.add_argument('--cache')
-    symbol = parser.add_mutually_exclusive_group(required=True)
-    symbol.add_argument('-a', '--all', action='store_true',
-                        help='output all symbols')
     parser.add_argument('--database', default=':memory:',
                         help='use an existing database')
     parser.add_argument('--load', action='store_true',
@@ -297,8 +296,10 @@ def main():
     parser.add_argument('--print', help='print selected symbol(s)')
     parser.add_argument('--reentrant', action='store_true',
                         help='ignore any duplicate ELFs')
-    symbol.add_argument('--symbol', help='the symbol name to look at')
-    parser.add_argument('file', help='ELF file from the database')
+    symbol = parser.add_mutually_exclusive_group(required=True)
+    symbol.add_argument('-a', '--all', action='store_true',
+                        help='output all symbols')
+    symbol.add_argument('symbol', nargs='?', help='the symbol name to look at')
 
     args = parser.parse_args()
 
