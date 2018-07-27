@@ -1,6 +1,9 @@
 import argparse
+import json
 import os
 import sqlite3
+from collections import OrderedDict
+from typing import Any, Union
 
 from quenya import Quenya
 
@@ -27,7 +30,8 @@ class SQLiteRow(SQLiteBacked):
             return self.query1(item)
         except sqlite3.OperationalError:
             raise AttributeError(self.__class__.__name__ + ' has no attribute '
-                                 'nor backing column ' + repr(item))
+                                                           'nor backing column ' + repr(
+                item))
 
     def __str__(self):
         return '{}({})'.format(
@@ -89,7 +93,7 @@ class Symbol(SQLiteRow):
             field = next(self.fields())
         except StopIteration:
             return None
-        return field.multiplicity
+        return field if field.multiplicity != 0 else None
 
     @property
     def base_type(self):
@@ -101,27 +105,29 @@ class Symbol(SQLiteRow):
         for field in c.fetchall():
             yield Field(self.database, field[0])
 
-    def print_tree(self, level=0, max_level=float('inf')):
-        if level > max_level:
-            return
-        indstr = '| '
-        indent = indstr * level
-        print('{}symbol {} size={}'.format(indent, self.name, self.byte_size))
-        if self.base_type:
-            return
-        indent = indstr * (level + 1)
-        typedef = self.typedef
-        array = self.array
-        if typedef:
-            return typedef.print_tree(level + 1, max_level=max_level)
-        if array:
-            # TODO do array things
-            pass
-        for field in self.fields():
-            print('{}field {} {} x{}'.format(
-                indent, field.byte_offset, field.name, field.multiplicity))
-            if field.name != '[pointer]':
-                field.type.print_tree(level + 2, max_level=max_level)
+    @property
+    def is_primitive(self):
+        return self.simple.base_type
+
+    @property
+    def pointer(self):
+        try:
+            field = next(self.fields())
+        except StopIteration:
+            return None
+        return field.type if field.name == '[pointer]' else None
+
+    @property
+    def simple(self):
+        """Follow typedefs and return a base type or a complex type.
+
+        A complex type is a type that cannot be represented as a single unit,
+        such as a struct or union.
+        """
+        print(self.name, list(self.fields()))
+        if self.base_type or len(list(self.fields())) > 1:
+            return self
+        return next(self.fields()).type.simple
 
     @property
     def typedef(self):
@@ -154,22 +160,64 @@ class BitField(SQLiteRow):
         super(BitField, self).__init__(database, 'bit_fields', row)
 
 
+def json_symbol(symbol):
+    def field(f):
+        fd = OrderedDict()
+        fd['name'] = f.name
+        # fd['type'] = f.type.name
+        fd['bit_offset'] = f.byte_offset * 8
+        fd['bit_size'] = f.type.byte_size * 8
+        kind = f.type  # type: Symbol
+        array = kind.array
+        if array:
+            # TODO flesh out arrays
+            fd['array'] = True
+            fd['count'] = array.multiplicity
+            fd['kind'] = json_symbol(array.type.simple)
+        simple = kind.simple  # type: Symbol
+        # fd['simple'] = simple.name
+        if not simple.base_type:
+            fd['fields'] = [field(f) for f in simple.fields()]
+
+        # pointer = symbol.pointer
+        # fd['type'] = pointer.name if pointer else json_symbol(field.type)
+        return fd
+
+    s = OrderedDict()
+    s['name'] = symbol.name
+    s['bit_size'] = symbol.byte_size * 8
+    if not symbol.pointer and not symbol.is_primitive:
+        s['fields'] = None if symbol.base_type else \
+            [field(f) for f in symbol.fields()]
+    return s
+
+
+def json_output(file_stream, elf, symbols):
+    out = OrderedDict()
+    out['file'] = elf.name
+    out['little_endian'] = elf.little_endian == 1
+    out['symbols'] = [json_symbol(s) for s in symbols]
+    json.dump(out, file_stream, indent='  ')
+
+
 def main():
     parser = argparse.ArgumentParser(
         description='Searches a Quenya database for a symbol.')
     # parser.add_argument('--cache')
+    symbol = parser.add_mutually_exclusive_group(required=True)
+    symbol.add_argument('-a', '--all', action='store_true',
+                        help='output all symbols')
     parser.add_argument('--database', default=':memory:',
                         help='use an existing database')
     parser.add_argument('--load', action='store_true',
                         help='load a new ELF file if an existing database is '
                              'chosen')
+    parser.add_argument('--out', help='output json file')
+    parser.add_argument('--print', help='print selected symbol(s)')
     parser.add_argument('--reentrant', action='store_true',
                         help='ignore any duplicate ELFs')
-    parser.add_argument('file', help='ELF file from the database')
-    symbol = parser.add_mutually_exclusive_group(required=True)
-    symbol.add_argument('-a', '--all', action='store_true',
-                        help='output all symbols')
     symbol.add_argument('--symbol', help='the symbol name to look at')
+    parser.add_argument('file', help='ELF file from the database')
 
     args = parser.parse_args()
 
@@ -181,8 +229,13 @@ def main():
     elf = Elf.from_name(db, args.file)
     symbols = (elf.symbol(symbol_name=args.symbol),) if not args.all else \
         elf.symbols()
-    for symbol in symbols:
-        symbol.print_tree()
+    if args.print:
+        for symbol in symbols:
+            symbol.print_tree()
+
+    if args.out:
+        with open(args.out, 'w') as fp:
+            json_output(fp, elf, symbols)
 
 
 if __name__ == '__main__':
