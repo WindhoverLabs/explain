@@ -1,10 +1,10 @@
 """
-Quenya is a tool for parsing the DWARF and DIE sections of an ELF file.
+ElfReader is a tool for parsing the DWARF and DIE sections of an ELF file.
 
 Code Limitations:
     ELF files to be parsed must conform to the following requirements:
     1. All relevant typedefs, structs, and unions must be defined in the top-
-        level of a file. Quenya will not look inside function or namespace
+        level of a file. ElfReader will not look inside function or namespace
         definitions.
     2. Things which are typedef'd must have either the same tag as
         their typedef or be untagged.
@@ -24,12 +24,12 @@ from elftools.elf.elffile import ELFFile
 from loggable import Loggable
 
 
-class QuenyaError(Exception):
-    """Base type for Quenya Errors."""
+class ElfReaderError(Exception):
+    """Base type for ElfReader Errors."""
 
 
-class Quenya(Loggable):
-    """Quenya: the language of the High Elves"""
+class ElfReader(Loggable):
+    """ElfReader"""
 
     def __init__(self, database, logger: Logger = None) -> None:
         super().__init__(logger)
@@ -106,7 +106,7 @@ class Quenya(Loggable):
         return '\n'.join(line for line in self.database.iterdump())
 
     def insert_elf(self, file_name):
-        """Insert an ELF file and symbols into Elvish. True if successful."""
+        """Insert an ELF file and symbols into ElfReader. True if successful."""
         # Checksum and load ELF
         try:
             stream = open(file_name, 'rb')
@@ -129,8 +129,8 @@ class Quenya(Loggable):
             c.execute('SELECT date FROM elfs WHERE name=? AND checksum=?',
                       (base, sqlite3.Binary(checksum)))
             duplicate = c.fetchone()
-            raise QuenyaError('{!r} matched previously loaded ELF uploaded on '
-                              '{}'.format(base, duplicate[0])) from e
+            raise ElfReaderError('{!r} matched previously loaded ELF uploaded '
+                                 'on {}'.format(base, duplicate[0])) from e
 
         # Insert symbols from ELF
         elf_id = c.lastrowid
@@ -175,8 +175,8 @@ class ElfView(Loggable):
         self.debug('insert_field({!r}, {}, {}, {})'.format(
             symbol_id, name, byte_offset, kind, multiplicity))
         if kind is None and not allow_void:
-            raise QuenyaError('Attempted to add a void field type without '
-                              'explicit override.')
+            raise ElfReaderError('Attempted to add a void field type without '
+                                 'explicit override.')
         c = self.database.cursor()
         c.execute('INSERT INTO fields(symbol, name, byte_offset, type, '
                   'multiplicity) VALUES (?, ?, ?, ?, ?)',
@@ -232,9 +232,9 @@ class ElfView(Loggable):
             # Find possible enclosing tag
             closest = sorted(filter(lambda k: k < die_offset, dies.keys()))[-1]
             self.exception(
-                'Could not locate DIE at 0x{:x}. The previous tag that Quenya '
-                'recognizes is a {} at 0x{:x}.'
-                    .format(die_offset, dies[closest].tag, closest))
+                'Could not locate DIE at 0x{:x}. The previous tag that '
+                'ElfReader recognizes is a {} at 0x{:x}.'
+                .format(die_offset, dies[closest].tag, closest))
             return None
         if isinstance(symbol, int):
             self.debug('Found inserted symbol id = {}'.format(symbol))
@@ -263,7 +263,7 @@ class ElfView(Loggable):
         try:
             callback = known_tags[symbol.tag]
         except KeyError as e:
-            raise QuenyaError(
+            raise ElfReaderError(
                 'symbol_requires can\'t handle {} at DIE 0x{:x}\n{}'
                     .format(symbol.tag, die_offset, symbol)) from e
         return callback(dies, symbol.offset, typedef=typedef)
@@ -281,8 +281,8 @@ class ElfView(Loggable):
             if tag == 'DW_TAG_base_type':
                 size = die_offset.attributes['DW_AT_byte_size'].value
             else:
-                raise QuenyaError('Can\'t get size of {} at DIE 0x{:x}'.format(
-                    tag, die_offset))
+                raise ElfReaderError('Can\'t get size of {} at DIE 0x{:x}'
+                                     .format(tag, die_offset))
         return size
 
     def _tag_array_type_multiplicity(self, die, die_offset):
@@ -301,7 +301,7 @@ class ElfView(Loggable):
                 else:
                     multiplicity *= length
             else:
-                raise QuenyaError('Unknown array child at:\n' + str(die))
+                raise ElfReaderError('Unknown array child at:\n' + str(die))
         return multiplicity
 
     def _tag_array_type(self, dies, die_offset, typedef=None):
@@ -352,7 +352,7 @@ class ElfView(Loggable):
         symbol_name = typedef
         symbol_byte_size = die.attributes['DW_AT_byte_size'].value
         symbol_id = self.symbol(symbol_name) \
-                    or self.insert_symbol(symbol_name, symbol_byte_size)
+            or self.insert_symbol(symbol_name, symbol_byte_size)
         for child in die.iter_children():
             cname = child.attributes['DW_AT_name'] \
                 .value.decode(ElfView.ENCODING)
@@ -369,7 +369,7 @@ class ElfView(Loggable):
         tag = dies[die_offset - self.cu_offset].tag
         self.debug(
             'Skipping known tag {} at 0x{:x} (typedef={!r})'
-                .format(tag, die_offset, typedef))
+            .format(tag, die_offset, typedef))
 
     def _tag_structure_type(self, dies, die_offset, typedef=None):
         """Insert a structure."""
@@ -429,7 +429,7 @@ class ElfView(Loggable):
                 if field_type_id is None:
                     self.warning(
                         'Skipping field {} with unknown type at DIE 0x{:x}'
-                            .format(field_name, die_offset))
+                        .format(field_name, die_offset))
                     continue
                 field_id = self.insert_field(
                     symbol_id, field_name, byte_offset, field_type_id)
@@ -466,9 +466,8 @@ class ElfView(Loggable):
         c.close()
         if pointer_name is None:
             if not typedef:
-                self.debug(
-                    'Skipping unnamed pointer type at DIE 0x{:x}'
-                        .format(die_offset))
+                self.debug('Skipping unnamed pointer type at DIE 0x{:x}'
+                           .format(die_offset))
                 return None
             else:
                 pointer_name = typedef
@@ -500,8 +499,8 @@ class ElfView(Loggable):
         try:
             td_die = dies[td_offset]
         except KeyError:
-            raise QuenyaError('Cannot find DIE at offset 0x{:x}'
-                              .format(td_offset))
+            raise ElfReaderError('Cannot find DIE at offset 0x{:x}'
+                                 .format(td_offset))
         if isinstance(td_die, int):
             # typedef'd thing already inserted, add reference.
             td_id = td_die
@@ -543,7 +542,7 @@ class ElfView(Loggable):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Quenya can understand ELF files and create tables or '
+        description='ElfReader can understand ELF files and create tables or '
                     'output files with symbol and field names.')
     parser.add_argument('-c', '--continue', action='store_true', dest='cont',
                         help='continue adding ELF files if one fails')
@@ -571,14 +570,14 @@ def main():
 
     # Open database
     database = sqlite3.connect(args.database)
-    quenya = Quenya(database, logger=logger)
+    elf_reader = ElfReader(database, logger=logger)
 
     # Insert ELF files
     loaded = True
     for file in args.files:
         try:
             logger.info('Adding ELF {}'.format(file))
-            quenya.insert_elf(file)
+            elf_reader.insert_elf(file)
         except Exception as e:
             if args.cont:
                 logger.exception('Problem adding ELF:')
@@ -589,7 +588,7 @@ def main():
 
     # Debug print database
     if args.sql:
-        print(quenya.dump)
+        print(elf_reader.dump)
 
     database.close()
 
