@@ -26,7 +26,7 @@ from logging import Logger
 
 from elftools.elf.elffile import ELFFile
 
-from loggable import Loggable
+from explain.loggable import Loggable
 
 
 class ElfReaderError(Exception):
