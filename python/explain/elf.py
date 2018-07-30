@@ -1,11 +1,10 @@
 import os
 
+from explain.explain_error import ExplainError
 from explain.sql import SQLiteRow
 
 
-class ExplainError(Exception):
-    """Base class for all Explain Errors."""
-    pass
+__all__ = ['Elf', 'Symbol', 'Field', 'BitField']
 
 
 class Elf(SQLiteRow):

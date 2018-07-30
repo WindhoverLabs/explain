@@ -1,4 +1,4 @@
-from sqlite3 import __init__
+import sqlite3
 
 
 class SQLiteBacked(object):

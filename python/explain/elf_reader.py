@@ -3,7 +3,7 @@ ElfReader is a tool for parsing the DWARF and DIE sections of an ELF file.
 
 Usage:
     From the command line, the expected usage of ElfReader looks like this:
-        $ python elf_reader.py --files ELF.so --database db.sqlite
+        $ elf_reader --files ELF.so --database db.sqlite
 
     This will load the ELF.so file into the database (assuming no errors were
     generated), and the user can then run Explain or another tool to interpret
