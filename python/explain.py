@@ -13,7 +13,7 @@ class ExplainError(Exception):
 
 
 class SQLiteBacked(object):
-    """An object that is represented by the contents of a database."""
+    """An object that is represented by the contents of a SQLite database."""
     def __init__(self, database):
         self.database = database
 
@@ -240,7 +240,19 @@ class BitField(SQLiteRow):
 
 
 def json_symbol(symbol):
+    """Return a dictionary representing the given Symbol with the properties
+    needed for this JSON output.
+
+    The important properties for this JSON output are the symbol/field name,
+    the bit size, and the bit offset. Typedefs are collapsed and in general
+    types are ignored/not useful for the use case of this particular JSON.
+    """
     def field(f):
+        """Return a dictionary representing the given Field with the properties
+        needed for this JSON output.
+
+        This method recurses if the field is a non-simple non-pointer kind.
+        """
         fd = OrderedDict()
         fd['name'] = f.name
         # fd['type'] = f.type.name
@@ -260,21 +272,23 @@ def json_symbol(symbol):
             fd['kind'] = json_symbol(array.type.simple)
         elif not simple.is_base_type and not kind.pointer:
             fd['fields'] = [field(f) for f in simple.fields()]
-
-        # pointer = symbol.pointer
-        # fd['type'] = pointer.name if pointer else json_symbol(field.type)
         return fd
-
-    s = OrderedDict()
-    s['name'] = symbol.name
-    s['bit_size'] = symbol.byte_size * 8
+    sd = OrderedDict()
+    sd['name'] = symbol.name
+    sd['bit_size'] = symbol.byte_size * 8
     if not symbol.pointer and not symbol.is_primitive:
-        s['fields'] = None if symbol.is_base_type else \
+        sd['fields'] = None if symbol.is_base_type else \
             [field(f) for f in symbol.fields()]
-    return s
+    return sd
 
 
 def json_output(file_stream, elf, symbols):
+    """Output a JSON to the file-like stream with the symbols from the ELF.
+
+    Currently there is no name for this kind of JSON because it is the only
+    kind of output that Explain has right now. When this changes this output
+    will need a real name to differentiate it.
+    """
     out = OrderedDict()
     out['file'] = elf.name
     out['little_endian'] = elf.little_endian == 1
