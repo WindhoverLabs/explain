@@ -284,7 +284,7 @@ def json_output(file_stream, elf, symbols):
 
 def main():
     parser = argparse.ArgumentParser(
-        description='Searches a Quenya database for a symbol.')
+        description='Searches an ElfReader database for a symbol.')
     parser.add_argument('file', help='ELF file from the database')
     # parser.add_argument('--cache')
     parser.add_argument('--database', default=':memory:',
@@ -305,8 +305,8 @@ def main():
 
     db = sqlite3.connect(args.database)
     if args.database == ':memory:' or args.load:
-        quenya = ElfReader(db)
-        quenya.insert_elf(args.file)
+        elf_reader = ElfReader(db)
+        elf_reader.insert_elf(args.file)
 
     elf = Elf.from_name(db, args.file)
     symbols = (elf.symbol(symbol_name=args.symbol),) if not args.all else \
