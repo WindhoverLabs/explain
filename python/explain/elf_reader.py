@@ -14,6 +14,12 @@ Code Limitations:
     1. All relevant typedefs, structs, and unions must be defined in the top-
         level of a file. ElfReader will not look inside function or namespace
         definitions.
+
+Notes:
+    New developers will probably want to use "objdump XXX.so --dwarf" to view
+    the DWARF information while debugging or adding new features to understand
+    how the DWARF sections look in practice. I also skimmed the Unix
+    International "dwarf-2.0.0.pdf" for a quick overview.
 """
 
 import argparse

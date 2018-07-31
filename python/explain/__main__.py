@@ -4,7 +4,7 @@ import sqlite3
 from collections import OrderedDict
 
 from explain.elf_reader import ElfReader
-from explain.elf import Elf, Symbol
+from explain.elf import Elf, SymbolMap
 
 
 def json_symbol(symbol):
@@ -31,9 +31,9 @@ def json_symbol(symbol):
         else:
             fd['bit_offset'] += bit_field.bit_offset
             fd['bit_size'] = bit_field.bit_size
-        kind = f.type  # type: Symbol
+        kind = f.type  # type: SymbolMap
         array = kind.array
-        simple = kind.simple  # type: Symbol
+        simple = kind.simple  # type: SymbolMap
         if array is not None:
             fd['array'] = True
             fd['count'] = array.multiplicity

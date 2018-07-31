@@ -4,7 +4,7 @@ from explain.explain_error import ExplainError
 from explain.sql import SQLiteRow
 
 
-__all__ = ['Elf', 'Symbol', 'Field', 'BitField']
+__all__ = ['Elf', 'SymbolMap', 'FieldMap', 'BitFieldMap']
 
 
 class Elf(SQLiteRow):
@@ -33,17 +33,17 @@ class Elf(SQLiteRow):
         if symbol_id is None:
             raise ExplainError('There is no symbol with name {!r} in {!r}'
                                .format(symbol_name, self.name))
-        return Symbol(self.database, symbol_id[0])
+        return SymbolMap(self.database, symbol_id[0])
 
     def symbols(self):
         """Yield all symbols in this ELF."""
         symbols = self.database.execute(
             'SELECT id FROM symbols WHERE elf=?', (self.row,)).fetchall()
         for symbol in symbols:
-            yield Symbol(self.database, symbol[0])
+            yield SymbolMap(self.database, symbol[0])
 
 
-class Symbol(SQLiteRow):
+class SymbolMap(SQLiteRow):
     """A symbol in an ELF. Symbols can be anything from structures to unions to
     base types.
 
@@ -79,7 +79,7 @@ class Symbol(SQLiteRow):
         If given, the array type will be the type attribute of the prime field,
         and the count will be the multiplicity attribute.
 
-        >>> array = Symbol().array
+        >>> array = SymbolMap().array
         >>> if array:
         ...     kind = array.type
         ...     count = array.multiplicity
@@ -91,16 +91,30 @@ class Symbol(SQLiteRow):
         return field if field.multiplicity != 0 else None
 
     @property
-    def is_base_type(self):
-        """Return True if the symbol is a base type (ie has no fields)."""
-        return len(list(self.fields())) == 0
+    def elf(self):
+        return Elf(self.database, self.query1('elf'))
+
+    def field(self, name):
+        """Return the field of the Symbol with the given name."""
+        c = self.database.execute('SELECT id FROM fields WHERE symbol=? AND '
+                                  'name=?', (self.row, name))
+        return FieldMap(self.database, c.fetchone()[0])
 
     def fields(self):
         """Yields all of the fields in the Symbol."""
         c = self.database.execute(
             'SELECT id FROM fields WHERE symbol=? ORDER BY id', (self.row,))
         for field in c.fetchall():
-            yield Field(self.database, field[0])
+            yield FieldMap(self.database, field[0])
+
+    @property
+    def is_base_type(self):
+        """Return True if the symbol is a base type.
+
+        A base type is a symbol that cannot be decomposed into composite fields.
+        It can either be a symbol with no fields, or a pointer.
+        """
+        return len(list(self.fields())) == 0 or self.pointer
 
     @property
     def is_primitive(self):
@@ -109,7 +123,7 @@ class Symbol(SQLiteRow):
         Easily resolves means that the symbol is a chain of typedef's
         to a base type.
         """
-        return self.simple.is_base_type
+        return self.simple.is_base_type  # Note self.simple
 
     @property
     def pointer(self):
@@ -118,7 +132,7 @@ class Symbol(SQLiteRow):
         If given, the type that is pointed to will be the type attribute of the
         prime field.
 
-        >>> pointer = Symbol().pointer
+        >>> pointer = SymbolMap().pointer
         >>> if pointer:
         ...     points_at = pointer.type
         """
@@ -133,6 +147,7 @@ class Symbol(SQLiteRow):
         """Follow typedefs and return the first symbol that is not a typedef."""
         if self.is_base_type or not self.typedef:
             return self
+        # If here we can assume that it has fields. No try/catch required.
         return next(self.fields()).type.simple
 
     @property
@@ -149,9 +164,9 @@ class Symbol(SQLiteRow):
         return field if field.name == 'typedef' else None
 
 
-class Field(SQLiteRow):
-    """A field of a Symbol. See the documentation of Symbol for how to interpret
-    the prime field of a Symbol."""
+class FieldMap(SQLiteRow):
+    """A field of a Symbol. See the documentation of SymbolMap for how to
+    interpret the prime field of a SymbolMap."""
 
     def __init__(self, database, row):
         """Extract a field from the database with the given global row."""
@@ -162,15 +177,15 @@ class Field(SQLiteRow):
         """Return the bit field if the field is a bit field, otherwise None."""
         field = self.database.execute('SELECT field FROM bit_fields WHERE '
                                       'field=?', (self.row,)).fetchone()
-        return None if field is None else BitField(self.database, field[0])
+        return None if field is None else BitFieldMap(self.database, field[0])
 
     @property
     def type(self):
         """Return what symbol the field contains."""
-        return Symbol(self.database, self.query1('type'))
+        return SymbolMap(self.database, self.query1('type'))
 
 
-class BitField(SQLiteRow):
+class BitFieldMap(SQLiteRow):
     """A bit field for a field.
 
     Bit fields are uncommon optional parts of fields, so they are given a
@@ -181,4 +196,4 @@ class BitField(SQLiteRow):
     def __init__(self, database, field_row):
         """Extract the bit field from the database that references the given
         field."""
-        super(BitField, self).__init__(database, 'bit_fields', field_row)
+        super(BitFieldMap, self).__init__(database, 'bit_fields', field_row)
