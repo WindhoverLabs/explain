@@ -1,11 +1,8 @@
 import argparse
-import io
-import json
-import pprint
 import sqlite3
 import struct
 from abc import ABCMeta
-from collections import Mapping, OrderedDict
+from collections import Mapping
 
 from explain.elf import Elf, SymbolMap, FieldMap
 from explain.elf_reader import ElfReader
@@ -18,7 +15,6 @@ class EndOfStream(StopIteration):
     pass
 
 
-# TODO This belongs to BaseSymbol
 # These are the types that struct knows how to unpack.
 # Custom types are below.
 BASE_MAPPING = {
@@ -63,11 +59,7 @@ def unpack(symbol, buffer, offset):
     return b
 
 
-class ExplainMapping(Mapping, metaclass=ABCMeta):
-    pass
-
-
-class Symbol(ExplainMapping):
+class Symbol(Mapping):
     def __init__(self, symbol_map: SymbolMap, symbol_buffer: memoryview, offset: int=0):
         self.buffer = symbol_buffer
         self.offset = offset
@@ -79,6 +71,7 @@ class Symbol(ExplainMapping):
         byte_offset = field.byte_offset
         kind = field.type.simple
         array = kind.array
+        # TODO Unify if possible
         if bit_field:
             return BitField(field, self.buffer, self.offset + byte_offset)
         elif array:
