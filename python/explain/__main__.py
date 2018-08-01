@@ -4,7 +4,7 @@ import sqlite3
 from collections import OrderedDict
 
 from explain.elf_reader import ElfReader
-from explain.elf import Elf, SymbolMap
+from explain.map import ElfMap, SymbolMap
 
 
 def json_symbol(symbol):
@@ -90,7 +90,7 @@ def main():
         elf_reader = ElfReader(db)
         elf_reader.insert_elf(args.file)
 
-    elf = Elf.from_name(db, args.file)
+    elf = ElfMap.from_name(db, args.file)
     symbols = (elf.symbol(symbol_name=args.symbol),) if not args.all else \
         elf.symbols()
     if args.print:

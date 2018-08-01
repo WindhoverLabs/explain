@@ -1,13 +1,16 @@
+"""
+The Map module contains the helper classes for looking at an ElfReader database.
+"""
 import os
 
 from explain.explain_error import ExplainError
 from explain.sql import SQLiteRow
 
 
-__all__ = ['Elf', 'SymbolMap', 'FieldMap', 'BitFieldMap']
+__all__ = ['ElfMap', 'SymbolMap', 'FieldMap', 'BitFieldMap']
 
 
-class Elf(SQLiteRow):
+class ElfMap(SQLiteRow):
     """An ELF file. Can be used to find symbols in the ELF."""
 
     def __init__(self, database, row):
@@ -23,7 +26,7 @@ class Elf(SQLiteRow):
         if elf_id is None:
             raise ExplainError('Cannot find ELF with file name {}'
                                .format(base_name))
-        return Elf(database, elf_id[0])
+        return ElfMap(database, elf_id[0])
 
     def symbol(self, symbol_name):
         """Return symbol from ELF with name."""
@@ -92,7 +95,7 @@ class SymbolMap(SQLiteRow):
 
     @property
     def elf(self):
-        return Elf(self.database, self.query1('elf'))
+        return ElfMap(self.database, self.query1('elf'))
 
     def field(self, name):
         """Return the field of the Symbol with the given name."""
@@ -106,6 +109,21 @@ class SymbolMap(SQLiteRow):
             'SELECT id FROM fields WHERE symbol=? ORDER BY id', (self.row,))
         for field in c.fetchall():
             yield FieldMap(self.database, field[0])
+
+    @staticmethod
+    def from_name(database, name):
+        """Return a SymbolMap from the database with the given name.
+
+        The ELF that the symbol came from is not guaranteed. Beware using this
+        when different ELFs use different definitions of the same symbol name.
+
+        To get a symbol from a specific ELF, use the preferred:
+            >>> elf_map = ElfMap.from_name(database, 'elf.so')
+            >>> symbol_map = elf_map.symbol(name)
+        """
+        symbol_id = database.execute('SELECT id FROM symbols WHERE name=?',
+                                     (name,)).fetchone()[0]
+        return SymbolMap(database, symbol_id)
 
     @property
     def is_base_type(self):

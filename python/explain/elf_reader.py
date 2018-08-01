@@ -1,5 +1,6 @@
 """
-ElfReader is a tool for parsing the DWARF and DIE sections of an ELF file.
+ElfReader is a tool for parsing the DWARF and DIE sections of an ELF file into
+a SQLite database.
 
 Usage:
     From the command line, the expected usage of ElfReader looks like this:
@@ -18,8 +19,8 @@ Code Limitations:
 Notes:
     New developers will probably want to use "objdump XXX.so --dwarf" to view
     the DWARF information while debugging or adding new features to understand
-    how the DWARF sections look in practice. I also skimmed the Unix
-    International "dwarf-2.0.0.pdf" for a quick overview.
+    how the DWARF sections look in practice. The Unix International
+    "dwarf-2.0.0.pdf" is also a good guide.
 """
 
 import argparse
@@ -32,10 +33,11 @@ from logging import Logger
 
 from elftools.elf.elffile import ELFFile
 
+from explain.explain_error import ExplainError
 from explain.loggable import Loggable
 
 
-class ElfReaderError(Exception):
+class ElfReaderError(ExplainError):
     """Base class for ElfReader Errors."""
 
 
@@ -71,16 +73,18 @@ class ElfReader(Loggable):
 
     def create_tables(self):
         """Creates the tables required for ElfReader to correctly load ELF data.
+
+        The rest of the ElfReader code assumes that if the tables are already
+        present that they have the same schema as in this method.
         """
         c = self.database.cursor()
         c.execute(
             'CREATE TABLE IF NOT EXISTS elfs ('
             'id INTEGER PRIMARY KEY,'
-            'name TEXT NOT NULL,'
+            'name TEXT UNIQUE NOT NULL,'
             'checksum TEXT NOT NULL,'
             'date DATETIME NOT NULL DEFAULT(CURRENT_TIMESTAMP),'
-            'little_endian BOOLEAN NOT NULL,'
-            'UNIQUE (name, checksum)'
+            'little_endian BOOLEAN NOT NULL'
             ');')
         c.execute(
             'CREATE TABLE IF NOT EXISTS symbols ('
@@ -129,7 +133,7 @@ class ElfReader(Loggable):
     def insert_elf(self, file_name):
         """Insert an ELF file and symbols into ElfReader.
 
-        Returns True if successful.
+        Return True if successful.
         """
         # Checksum and load ELF
         try:
@@ -166,8 +170,8 @@ class ElfReader(Loggable):
 class ElfView(Loggable):
     """A class with helper methods for inserting into the database.
 
-    The method insert_symbols_from_elf is the primary entry point of this class,
-    once it has been constructed. This method goes through the ELF and adds
+    Once ElfView has been constructed, the insert_symbols_from_elf method is the
+    primary entry point of this class. This method goes through the ELF and adds
     every symbol it can find into the database.
 
     The public insert_* methods perform the actual SQL operation, while the
@@ -181,6 +185,8 @@ class ElfView(Loggable):
         super().__init__(logger)
         self.database = database
         self.elf_id = elf_id
+        # Because of cu_offset do not multi-thread this.
+        self.cu_offset = None
 
     def insert_bit_field(self, field_id, bit_size, bit_offset):
         """Insert a bit field into the database.
@@ -189,8 +195,8 @@ class ElfView(Loggable):
         additional information to return to the user if the insertion succeeded.
 
         This method does not check for a preexisting bit field, but since adding
-        the same field multiple times is not supported anyway this should not be
-        an issue.
+        the same field multiple times is not supported anyway this should raise
+        a SQLite error.
         """
         self.debug('insert_bit_field({!r}, {}, {})'.format(
             field_id, bit_size, bit_offset))
@@ -206,7 +212,7 @@ class ElfView(Loggable):
 
         This method does not check for a preexisting enumeration for the symbol
         with the same value, but since adding symbols multiple times is not
-        supported anyway this should not be an issue.
+        supported anyway this should raise a SQLite error.
         """
         self.debug('insert_enumeration({!r}, {}, {})'.format(
             symbol_id, value, name))
@@ -221,7 +227,7 @@ class ElfView(Loggable):
 
         This method does not check for a preexisting field for the symbol with
         the same name, but since adding symbols multiple times is not supported
-        anyway this should not be an issue.
+        anyway this should raise a SQLite error.
         """
         self.debug('insert_field({!r}, {}, {}, {})'.format(
             symbol_id, name, byte_offset, kind, multiplicity))
@@ -281,6 +287,7 @@ class ElfView(Loggable):
             self.debug('CU #{}: {}'.format(i, cu.header))
             top = cu.get_top_DIE()
             dies = {c.offset - cu.cu_offset: c for c in top.iter_children()}
+            # I don't like this. But it is a pain to anything else.
             self.cu_offset = cu.cu_offset
 
             for child in top.iter_children():
@@ -339,21 +346,15 @@ class ElfView(Loggable):
                     .format(symbol.tag, die_offset, symbol)) from e
         return callback(dies, symbol.offset, typedef=typedef)
 
-    def _die_byte_size(self, die_offset):
-        """Get the byte size of a DIE."""
-        self.debug('_die_byte_size {}'.format(str(die_offset)[:20]))
-        if isinstance(die_offset, int):
-            c = self.database.cursor()
-            c.execute('SELECT byte_size FROM symbols WHERE id=?', (die_offset,))
-            size = c.fetchone()[0]
-            c.close()
+    def _symbol_byte_size(self, symbol_id):
+        """Get the byte size of a symbol."""
+        self.debug('_symbol_byte_size {}'.format(symbol_id))
+        if isinstance(symbol_id, int):
+            size = self.database.execute('SELECT byte_size FROM symbols WHERE '
+                                         'id=?', (symbol_id,)).fetchone()[0]
         else:
-            tag = die_offset.tag
-            if tag == 'DW_TAG_base_type':
-                size = die_offset.attributes['DW_AT_byte_size'].value
-            else:
-                raise ElfReaderError('Can\'t get size of {} at DIE 0x{:x}'
-                                     .format(tag, die_offset))
+            raise ElfReaderError('Can\'t get size of symbol that has not been '
+                                 'added.')
         return size
 
     def _tag_array_type_multiplicity(self, die, die_offset):
@@ -390,17 +391,15 @@ class ElfView(Loggable):
             self.warning('Skipping array of unknown type at DIE 0x{:x}'
                          .format(die_offset))
             return None
-        c = self.database.cursor()
-        c.execute('SELECT name, byte_size FROM symbols WHERE id=?',
-                  (array_type_id,))
-        array_type_name, unit_byte_size = c.fetchone()
-        c.close()
+        array_type_name, unit_byte_size = self.database.execute(
+            'SELECT name, byte_size FROM symbols WHERE id=?',
+            (array_type_id,)).fetchone()
         multiplicity = self._tag_array_type_multiplicity(die, die_offset)
         array_name = 'array_{}_{}'.format(array_type_name, multiplicity)
         symbol_size = unit_byte_size * multiplicity
         symbol_id = self.symbol(array_name)
         if symbol_id is not None:
-            # Symbol exists
+            # Symbol exists, arrays of the same stuff are the same.
             return symbol_id
         symbol_id = self.insert_symbol(array_name, symbol_size)
         self.insert_field(symbol_id, '[array]', 0, array_type_id, multiplicity)
@@ -610,7 +609,7 @@ class ElfView(Loggable):
                 # Symbol exists
                 return symbol_id
             if symbol_id is None:
-                byte_size = self._die_byte_size(td_id)
+                byte_size = self._symbol_byte_size(td_id)
                 symbol_id = self.insert_symbol(name, byte_size)
             self.insert_field(symbol_id, 'typedef', 0, td_id)
         dies[die_offset - self.cu_offset] = symbol_id
