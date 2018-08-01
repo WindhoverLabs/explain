@@ -1,6 +1,6 @@
 import argparse
 import sqlite3
-from abc import abstractmethod
+from abc import abstractmethod, ABCMeta
 from typing import Type
 
 from explain.explain_error import ExplainError
@@ -21,12 +21,6 @@ class StreamParser(SQLiteBacked):
         super().__init__(database)
         self.stream = stream
 
-    def read(self, num_bytes):
-        b = self.stream.read(num_bytes)
-        if len(b) != num_bytes:
-            raise EndOfStream
-        return b
-
     @abstractmethod
     def advance_stream_to_structure(self) -> str:
         """Advance the stream to the next structure and return the name of the
@@ -36,9 +30,25 @@ class StreamParser(SQLiteBacked):
     def parse(self):
         while True:
             name = self.advance_stream_to_structure()
-            symbol = SymbolMap.from_name(self.database, name)
-            bts = memoryview(self.read(symbol.byte_size))
-            yield Symbol(symbol, bts)
+            yield self.read_symbol(SymbolMap.from_name(self.database, name))
+
+    def read(self, num_bytes):
+        b = self.stream.read(num_bytes)
+        if len(b) != num_bytes:
+            raise EndOfStream
+        return b
+
+    def read_symbol(self, symbol_map: SymbolMap, little_endian=None):
+        bts = memoryview(self.read(symbol_map.byte_size))
+        return Symbol(symbol_map, bts, little_endian=little_endian)
+
+
+class CfeStreamParser(StreamParser, metaclass=ABCMeta):
+    def __init__(self, database, stream):
+        super().__init__(database, stream)
+        self.cfe_header = self.read_symbol(
+            SymbolMap.from_name(self.database, 'CFE_FS_Header_t'),
+            little_endian=False)
 
 
 def main(parse_class: Type[StreamParser]):

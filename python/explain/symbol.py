@@ -43,15 +43,24 @@ def struct_fmt(symbol: SymbolMap):
     return fmt
 
 
-def unpack(symbol, buffer, offset):
-    end = '<' if symbol.elf.little_endian else '>'
+def unpack(symbol, buffer, offset, little_endian=None):
+    """Use the struct module to unpack a single part of a structure.
+
+    This is slightly inefficient because each member of the struct has to be
+    unpacked individually, but it's easier this way due to how Symbols are
+    dynamically defined. There isn't a preset list of Symbols.
+    """
+    end = '<' if (little_endian if little_endian is not None
+                  else symbol.elf.little_endian) else '>'
     b = struct.unpack_from(end + struct_fmt(symbol), buffer, offset)[0]
     return b
 
 
 class Symbol(Mapping):
-    def __init__(self, symbol_map: SymbolMap, symbol_buffer: memoryview, offset: int=0):
+    def __init__(self, symbol_map: SymbolMap, symbol_buffer: memoryview,
+                 offset: int=0, little_endian=None):
         self.buffer = symbol_buffer
+        self.little_endian = little_endian
         self.offset = offset
         self.symbol = symbol_map
 
@@ -66,9 +75,11 @@ class Symbol(Mapping):
             return BitField(field, self.buffer, self.offset + byte_offset)
         elif array:
             return ArraySymbol(array.type.simple, self.buffer, self.offset +
-                               byte_offset, array.multiplicity)
+                               byte_offset, array.multiplicity,
+                               self.little_endian)
         else:
-            return Symbol(kind, self.buffer, self.offset + byte_offset)
+            return Symbol(kind, self.buffer, self.offset + byte_offset,
+                          self.little_endian)
 
     def __iter__(self):
         if self.symbol.pointer:
@@ -85,7 +96,8 @@ class Symbol(Mapping):
     @property
     def value(self):
         try:
-            return unpack(self.symbol, self.buffer, self.offset)
+            return unpack(self.symbol, self.buffer, self.offset,
+                          self.little_endian)
         except ExplainError:
             ofst = self.offset
             byte_size = self.symbol.byte_size
@@ -95,8 +107,8 @@ class Symbol(Mapping):
 
 class ArraySymbol(Symbol, list):
     def __init__(self, symbol_map: SymbolMap, buffer: memoryview, offset: int,
-                 count: int):
-        super().__init__(symbol_map, buffer, offset)
+                 count: int, little_endian=None):
+        super().__init__(symbol_map, buffer, offset, little_endian)
         unit_byte_size = self.symbol.byte_size
         self.extend(
             Symbol(self.symbol, self.buffer, self.offset + (unit_byte_size * i))
