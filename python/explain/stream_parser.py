@@ -1,6 +1,7 @@
 import argparse
 import sqlite3
 from abc import abstractmethod, ABCMeta
+from io import RawIOBase
 from typing import Type
 
 from explain.explain_error import ExplainError
@@ -16,10 +17,27 @@ class EndOfStream(ExplainError, StopIteration):
     pass
 
 
-class StreamParser(SQLiteBacked):
+class StreamCache(RawIOBase):
+    def __init__(self, stream):
+        self.stream = stream
+        self.cache = bytes()
+
+    def clear(self):
+        self.cache = bytes()
+
+    def read(self, size: int = ...):
+        to_read = max(0, size - len(self.cache))
+        read = self.stream.read(to_read)
+        if len(read) != to_read:
+            raise EndOfStream
+        self.cache += read
+        return self.cache
+
+
+class StreamParser(SQLiteBacked, metaclass=ABCMeta):
     def __init__(self, database, stream):
         super().__init__(database)
-        self.stream = stream
+        self.stream = StreamCache(stream)
 
     @abstractmethod
     def advance_stream_to_structure(self) -> str:
@@ -31,24 +49,40 @@ class StreamParser(SQLiteBacked):
         while True:
             name = self.advance_stream_to_structure()
             yield self.read_symbol(SymbolMap.from_name(self.database, name))
-
-    def read(self, num_bytes):
-        b = self.stream.read(num_bytes)
-        if len(b) != num_bytes:
-            raise EndOfStream
-        return b
+            self.stream.clear()
 
     def read_symbol(self, symbol_map: SymbolMap, little_endian=None):
-        bts = memoryview(self.read(symbol_map.byte_size))
+        bts = memoryview(self.stream.read(symbol_map.byte_size))
         return Symbol(symbol_map, bts, little_endian=little_endian)
 
 
-class CfeStreamParser(StreamParser, metaclass=ABCMeta):
+class CcsdsMixin(StreamParser):
+    def __init__(self, database, stream):
+        super().__init__(database, stream)
+        self.ccsds_map = SymbolMap.from_name(self.database, 'CCSDS_PriHdr_t')
+
+    def advance_stream_to_structure(self):
+        ccsds = self.read_symbol(self.ccsds_map)
+        # flatten(ccsds, 'ccsds', join_chr=False)
+        stream_id, length = ccsds['StreamId'], ccsds['Length']
+        app_id = (stream_id[0].value << 8) + stream_id[1].value
+        length = (length[0].value << 8) + length[1].value + 7
+        self.stream.read(length)
+        if app_id == 0xA13:
+            return 'PX4_DistanceSensorMsg_t'
+        else:
+            print('App ID not 0xA13: ', hex(app_id))
+            raise EndOfStream
+
+
+class CfeStreamParser(StreamParser):
     def __init__(self, database, stream):
         super().__init__(database, stream)
         self.cfe_header = self.read_symbol(
             SymbolMap.from_name(self.database, 'CFE_FS_Header_t'),
             little_endian=False)
+        flatten(self.cfe_header)
+        self.stream.clear()
 
 
 def main(parse_class: Type[StreamParser]):
@@ -73,7 +107,7 @@ def main(parse_class: Type[StreamParser]):
         # print(p.symbol.name)
         # pretty(p, indent=1)
         # print(p['nak']['gap'])
-        flatten(p, 'MACHINE')
+        flatten(p)
 
 
 if __name__ == '__main__':

@@ -67,7 +67,7 @@ def json_output(file_stream, elf, symbols):
 def main():
     parser = argparse.ArgumentParser(
         description='Searches an ElfReader database for a symbol.')
-    parser.add_argument('file', help='ELF file from the database')
+    parser.add_argument('--file', help='ELF file from the database')
     # parser.add_argument('--cache')
     parser.add_argument('--database', default=':memory:',
                         help='use an existing database')
@@ -90,9 +90,14 @@ def main():
         elf_reader = ElfReader(db)
         elf_reader.insert_elf(args.file)
 
-    elf = ElfMap.from_name(db, args.file)
-    symbols = (elf.symbol(symbol_name=args.symbol),) if not args.all else \
-        elf.symbols()
+    if args.file:
+        elf = ElfMap.from_name(db, args.file)
+        symbols = (elf.symbol(symbol_name=args.symbol),) if not args.all else \
+            elf.symbols()
+    else:
+        symbol = SymbolMap.from_name(db, args.symbol)
+        elf = symbol.elf
+        symbols = (symbol,)
     if args.print:
         for symbol in symbols:
             symbol.print_tree()

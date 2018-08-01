@@ -24,6 +24,8 @@ STRUCT_MAPPING = {
 }
 # Custom types that map different type names to common types.
 STRUCT_MAPPING['long unsigned int'] = STRUCT_MAPPING['unsigned long']
+STRUCT_MAPPING['short unsigned int'] = STRUCT_MAPPING['unsigned short']
+STRUCT_MAPPING['long long unsigned int'] = STRUCT_MAPPING['unsigned long long']
 
 
 def struct_fmt(symbol: SymbolMap):
@@ -60,7 +62,8 @@ class Symbol(Mapping):
     def __init__(self, symbol_map: SymbolMap, symbol_buffer: memoryview,
                  offset: int=0, little_endian=None):
         self.buffer = symbol_buffer
-        self.little_endian = little_endian
+        self.little_endian = little_endian if little_endian is not None \
+            else symbol_map.elf.little_endian
         self.offset = offset
         self.symbol = symbol_map
 
@@ -101,8 +104,7 @@ class Symbol(Mapping):
         except ExplainError:
             ofst = self.offset
             byte_size = self.symbol.byte_size
-            return '{} bytes'.format(
-                len([hex(b) for b in self.buffer[ofst:ofst+byte_size]]))
+            return '{} bytes: {}'.format(byte_size, self)
 
 
 class ArraySymbol(Symbol, list):
@@ -113,6 +115,9 @@ class ArraySymbol(Symbol, list):
         self.extend(
             Symbol(self.symbol, self.buffer, self.offset + (unit_byte_size * i))
             for i in range(count))
+
+    def __getitem__(self, item):
+        return list.__getitem__(self, item)
 
     def __iter__(self):
         return list.__iter__(self)
@@ -147,9 +152,17 @@ class BitField(Field):
         bit_offset = self.bit_field.bit_offset
         if bit_offset < 0:
             raise ExplainError('Can\'t handle negative bit offset now.')
-        shift = (8 - bit_offset - bit_size)
-        mask = pow(2, bit_size) - 1 << shift
-        bits = (self.buffer[self.offset] & mask) >> shift
+        field_type = self.field.type
+        symbol_byte_size = field_type.byte_size
+        symbol_bit_size = symbol_byte_size * 8
+        shift = (symbol_bit_size - bit_offset - bit_size)
+        mask = pow(2, bit_size) - 1
+        buffer = self.buffer[self.offset:self.offset+symbol_byte_size]
+        buffer = reversed(buffer) if field_type.elf.little_endian else buffer
+        memory = 0
+        for b in buffer:
+            memory = (memory << 8) + b
+        bits = (memory >> shift) & mask
         if self.bit_field.bit_size == 1:
             return bits == 1
         return bits
