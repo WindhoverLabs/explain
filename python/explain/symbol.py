@@ -1,9 +1,8 @@
 import struct
 from collections import Mapping
 
-from explain.map import SymbolMap, FieldMap
 from explain.explain_error import ExplainError
-
+from explain.map import SymbolMap, BitFieldMap
 
 # These are the types that struct knows how to unpack.
 # Custom types are below.
@@ -23,9 +22,14 @@ STRUCT_MAPPING = {
     'ptr': 'P'
 }
 # Custom types that map different type names to common types.
-STRUCT_MAPPING['long unsigned int'] = STRUCT_MAPPING['unsigned long']
-STRUCT_MAPPING['short unsigned int'] = STRUCT_MAPPING['unsigned short']
+STRUCT_MAPPING['long int'] = STRUCT_MAPPING['long']
 STRUCT_MAPPING['long long unsigned int'] = STRUCT_MAPPING['unsigned long long']
+STRUCT_MAPPING['long unsigned int'] = STRUCT_MAPPING['unsigned long']
+STRUCT_MAPPING['short int'] = STRUCT_MAPPING['short']
+STRUCT_MAPPING['short unsigned int'] = STRUCT_MAPPING['unsigned short']
+STRUCT_MAPPING['uint32'] = STRUCT_MAPPING['unsigned int']
+STRUCT_MAPPING['uint16'] = STRUCT_MAPPING['unsigned short']
+STRUCT_MAPPING['uint8'] = STRUCT_MAPPING['unsigned char']
 
 
 def struct_fmt(symbol: SymbolMap):
@@ -38,6 +42,7 @@ def struct_fmt(symbol: SymbolMap):
             mapping = 'unsigned long' if bit64 else 'unsigned int'
             fmt = STRUCT_MAPPING[mapping]
         elif symbol.byte_size == 4:
+            print('Struct doesn\'t recognize {!r}'.format(symbol.name))
             fmt = STRUCT_MAPPING['unsigned int']
         else:
             raise ExplainError('Can\'t unpack type {!r}'
@@ -59,9 +64,9 @@ def unpack(symbol, buffer, offset, little_endian=None):
 
 
 class Symbol(Mapping):
-    def __init__(self, symbol_map: SymbolMap, symbol_buffer: memoryview,
-                 offset: int=0, little_endian=None):
-        self.buffer = symbol_buffer
+    def __init__(self, symbol_map: SymbolMap, buffer: memoryview,
+                 offset: int, little_endian=None):
+        self.buffer = buffer
         self.little_endian = little_endian if little_endian is not None \
             else symbol_map.elf.little_endian
         self.offset = offset
@@ -70,19 +75,34 @@ class Symbol(Mapping):
     def __getitem__(self, key):
         field = self.symbol.field(key)
         bit_field = field.bit_field
-        byte_offset = field.byte_offset
         kind = field.type.simple
+        symbol_offset = self.offset + field.byte_offset
         array = kind.array
-        # TODO Unify if possible
         if bit_field:
-            return BitField(field, self.buffer, self.offset + byte_offset)
+            symbol = BitFieldSymbol(
+                symbol_map=kind,
+                bit_field=bit_field,
+                buffer=self.buffer,
+                offset=symbol_offset,
+                little_endian=self.little_endian
+            )
         elif array:
-            return ArraySymbol(array.type.simple, self.buffer, self.offset +
-                               byte_offset, array.multiplicity,
-                               self.little_endian)
+            symbol = ArraySymbol(
+                symbol_map=kind,
+                buffer=self.buffer,
+                offset=symbol_offset,
+                count=array.multiplicity,
+                unit_symbol=array.type,
+                little_endian=self.little_endian
+            )
         else:
-            return Symbol(kind, self.buffer, self.offset + byte_offset,
-                          self.little_endian)
+            symbol = Symbol(
+                symbol_map=kind,
+                buffer=self.buffer,
+                offset=symbol_offset,
+                little_endian=self.little_endian
+            )
+        return symbol
 
     def __iter__(self):
         if self.symbol.pointer:
@@ -98,22 +118,28 @@ class Symbol(Mapping):
 
     @property
     def value(self):
-        try:
-            return unpack(self.symbol, self.buffer, self.offset,
-                          self.little_endian)
-        except ExplainError:
-            ofst = self.offset
-            byte_size = self.symbol.byte_size
-            return '{} bytes: {}'.format(byte_size, self)
+        return unpack(self.symbol, self.buffer, self.offset,
+                      self.little_endian)
+
+    def flatten(self, name=''):
+        name = name or self.symbol.name
+        # print('flatten {} {}'.format(self.symbol, self.offset))
+        if self.symbol.is_primitive:
+            yield name, self.value
+        else:
+            for field_name, symbol in self.items():
+                yield from symbol.flatten(name + '.' + field_name)
 
 
 class ArraySymbol(Symbol, list):
-    def __init__(self, symbol_map: SymbolMap, buffer: memoryview, offset: int,
-                 count: int, little_endian=None):
-        super().__init__(symbol_map, buffer, offset, little_endian)
-        unit_byte_size = self.symbol.byte_size
+    def __init__(self, symbol_map: SymbolMap, buffer: memoryview,
+                 offset: int, count: int, unit_symbol: SymbolMap,
+                 little_endian=None):
+        super().__init__(symbol_map=symbol_map, buffer=buffer, offset=offset,
+                         little_endian=little_endian)
+        unit_byte_size = unit_symbol.byte_size
         self.extend(
-            Symbol(self.symbol, self.buffer, self.offset + (unit_byte_size * i))
+            Symbol(unit_symbol, self.buffer, self.offset + (unit_byte_size * i))
             for i in range(count))
 
     def __getitem__(self, item):
@@ -126,21 +152,24 @@ class ArraySymbol(Symbol, list):
         list_str = super(ArraySymbol, self).__repr__()
         return 'ArrayField(values={}, offset={})'.format(list_str, self.offset)
 
-
-class Field(object):
-    def __init__(self, field_map: FieldMap, buffer: memoryview, offset: int):
-        self.field = field_map
-        self.buffer = buffer
-        self.offset = offset
+    def flatten(self, name=''):
+        # print('Array flatten {} {} {}'.format(self.symbol.name, name, self.symbol.is_primitive))
+        for n, elem in enumerate(self):
+            yield from elem.flatten('{}[{}]'.format(name, n))
 
 
-class BitField(Field):
-    def __init__(self, field_map: FieldMap, buffer: memoryview,
-                 byte_offset: int):
-        super().__init__(field_map, buffer, byte_offset)
-        self.bit_field = field_map.bit_field
+class BitFieldSymbol(Symbol):
+    def __init__(self, symbol_map: SymbolMap, bit_field: BitFieldMap,
+                 buffer: memoryview,
+                 offset: int, little_endian=None):
+        super().__init__(symbol_map, buffer, offset, little_endian)
+        self.bit_field = bit_field
         if self.bit_field is None:
-            raise ExplainError('This is not a bit field.')
+            raise ExplainError('bit_field is not allowed to be None.')
+
+    def __iter__(self):
+        print('Please don\'t iterate over a bitfield.')
+        return super(BitFieldSymbol, self).__iter__()
 
     def __repr__(self):
         return 'BitField(value={!r}, byte_offset={}, bit_offset={})'.format(
@@ -152,12 +181,12 @@ class BitField(Field):
         bit_offset = self.bit_field.bit_offset
         if bit_offset < 0:
             raise ExplainError('Can\'t handle negative bit offset now.')
-        field_type = self.field.type
+        field_type = self.symbol
         symbol_byte_size = field_type.byte_size
         symbol_bit_size = symbol_byte_size * 8
         shift = (symbol_bit_size - bit_offset - bit_size)
         mask = pow(2, bit_size) - 1
-        buffer = self.buffer[self.offset:self.offset+symbol_byte_size]
+        buffer = self.buffer[self.offset:self.offset + symbol_byte_size]
         buffer = reversed(buffer) if field_type.elf.little_endian else buffer
         memory = 0
         for b in buffer:

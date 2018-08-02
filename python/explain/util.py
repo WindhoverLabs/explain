@@ -1,4 +1,4 @@
-from explain.symbol import Symbol, ArraySymbol
+from explain.symbol import Symbol
 
 
 def pretty(symbol, indent=0):
@@ -7,21 +7,6 @@ def pretty(symbol, indent=0):
         print('{}{} = {!r}'.format(i, name, value))
         if isinstance(value, Symbol):
             pretty(value, indent=indent+1)
-
-
-def flatten(symbol, name='', join_chr=True):
-    name = name or symbol.symbol.name
-    if isinstance(symbol, ArraySymbol):
-        if join_chr and 'char' in symbol.symbol.name:
-            print('{} = char {!r}'.format(name, ''.join(chr(c.value) for c in symbol)))
-        else:
-            for n, elem in enumerate(symbol):
-                flatten(elem, name + '[{}]'.format(n), join_chr)
-    else:
-        print('{} = {}'.format(name, symbol.value))
-        if isinstance(symbol, Symbol):
-            for n, elem in symbol.items():
-                flatten(elem, name + '.' + n, join_chr)
 
 
 def sql_print(result, header_every=20):

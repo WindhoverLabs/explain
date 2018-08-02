@@ -132,7 +132,7 @@ class SymbolMap(SQLiteRow):
         A base type is a symbol that cannot be decomposed into composite fields.
         It can either be a symbol with no fields, or a pointer.
         """
-        return len(list(self.fields())) == 0 or self.pointer
+        return len(list(self.fields())) == 0 or self.pointer is not None
 
     @property
     def is_primitive(self):
