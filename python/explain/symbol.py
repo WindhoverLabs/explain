@@ -42,7 +42,7 @@ def struct_fmt(symbol: SymbolMap):
             mapping = 'unsigned long' if bit64 else 'unsigned int'
             fmt = STRUCT_MAPPING[mapping]
         elif symbol.byte_size == 4:
-            print('Struct doesn\'t recognize {!r}'.format(symbol.name))
+            # print('Struct doesn\'t recognize {!r}'.format(symbol.name))
             fmt = STRUCT_MAPPING['unsigned int']
         else:
             raise ExplainError('Can\'t unpack type {!r}'

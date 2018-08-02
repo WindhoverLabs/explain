@@ -143,8 +143,17 @@ def main(parse_class: Type[StreamParser]):
         path = os.path.join(path, args.csv)
 
     stream_parser = parse_class(database, stream)
+
+    def prog(s):
+        for n, p in enumerate(s):
+            if not n % 100:
+                print('{:6d}'.format(n))
+                if n >= 1000:
+                    exit()
+            yield p
+
     try:
-        for symbol in stream_parser.parse():
+        for symbol in prog(stream_parser.parse()):
             name = symbol.symbol.name
             flat = OrderedDict(symbol.flatten())
             if name not in csvs:
