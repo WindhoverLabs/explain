@@ -10,8 +10,27 @@ from explain.sql import SQLiteRow
 __all__ = ['ElfMap', 'SymbolMap', 'FieldMap', 'BitFieldMap']
 
 
-class ElfMap(SQLiteRow):
+class SQLiteCacheRow(SQLiteRow):
+    CACHE = {}
+
+    def __new__(cls, database, table, row):
+        key = (table, row)
+        try:
+            row = SQLiteCacheRow.CACHE[key]
+            # print('Cache hit')
+            return row
+        except KeyError:
+            # print('Cache miss')
+            row = super(SQLiteCacheRow, cls).__new__(cls)
+            SQLiteCacheRow.CACHE[key] = row
+            return row
+
+
+class ElfMap(SQLiteCacheRow):
     """An ELF file. Can be used to find symbols in the ELF."""
+
+    def __new__(cls, database, row):
+        return super(ElfMap, cls).__new__(cls, database, 'elfs', row)
 
     def __init__(self, database, row):
         """Extract an ELF from the database with row number."""
@@ -46,7 +65,7 @@ class ElfMap(SQLiteRow):
             yield SymbolMap(self.database, symbol[0])
 
 
-class SymbolMap(SQLiteRow):
+class SymbolMap(SQLiteCacheRow):
     """A symbol in an ELF. Symbols can be anything from structures to unions to
     base types.
 
@@ -71,6 +90,9 @@ class SymbolMap(SQLiteRow):
     prime field of the symbol. Helper methods are provided to assist in the
     parsing of the fields.
     """
+    def __new__(cls, database, symbol_id):
+        return super(SymbolMap, cls).__new__(cls, database, 'symbols', symbol_id)
+
     def __init__(self, database, symbol_id):
         """Extract a symbol from the database with a global row number."""
         super().__init__(database, 'symbols', symbol_id)
@@ -182,9 +204,12 @@ class SymbolMap(SQLiteRow):
         return field if field.name == 'typedef' else None
 
 
-class FieldMap(SQLiteRow):
+class FieldMap(SQLiteCacheRow):
     """A field of a Symbol. See the documentation of SymbolMap for how to
     interpret the prime field of a SymbolMap."""
+
+    def __new__(cls, database, row):
+        return super(FieldMap, cls).__new__(cls, database, 'fields', row)
 
     def __init__(self, database, row):
         """Extract a field from the database with the given global row."""
