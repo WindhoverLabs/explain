@@ -87,6 +87,7 @@ class CcsdsMixin(StreamParser):
             0x0A13: 'PX4_DistanceSensorMsg_t',
             0x0A24: 'PX4_HomePositionMsg_t',
             0x0A25: 'PX4_InputRcMsg_t',
+            0x0A27: 'PX4_ManualControlSetpointMsg_t',
             0x0A37: 'PX4_RcChannelsMsg_t',
             0x0A3B: 'PX4_SensorAccelMsg_t',
             0x0A3C: 'PX4_SensorBaroMsg_t',

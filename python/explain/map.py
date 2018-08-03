@@ -4,37 +4,17 @@ The Map module contains the helper classes for looking at an ElfReader database.
 import os
 
 from explain.explain_error import ExplainError
-from explain.sql import SQLiteRow
-
+from explain.sql import SQLiteRow, SQLiteCacheRow
 
 __all__ = ['ElfMap', 'SymbolMap', 'FieldMap', 'BitFieldMap']
-
-
-class SQLiteCacheRow(SQLiteRow):
-    CACHE = {}
-
-    def __new__(cls, database, table, row):
-        key = (table, row)
-        try:
-            row = SQLiteCacheRow.CACHE[key]
-            # print('Cache hit')
-            return row
-        except KeyError:
-            # print('Cache miss')
-            row = super(SQLiteCacheRow, cls).__new__(cls)
-            SQLiteCacheRow.CACHE[key] = row
-            return row
 
 
 class ElfMap(SQLiteCacheRow):
     """An ELF file. Can be used to find symbols in the ELF."""
 
-    def __new__(cls, database, row):
-        return super(ElfMap, cls).__new__(cls, database, 'elfs', row)
-
     def __init__(self, database, row):
         """Extract an ELF from the database with row number."""
-        super().__init__(database, 'elfs', row)
+        super().__init__(database, row)
 
     @staticmethod
     def from_name(database, name):
@@ -45,7 +25,7 @@ class ElfMap(SQLiteCacheRow):
         if elf_id is None:
             raise ExplainError('Cannot find ELF with file name {}'
                                .format(base_name))
-        return ElfMap(database, elf_id[0])
+        return ElfMap.from_cache(database, elf_id[0])
 
     def symbol(self, symbol_name):
         """Return symbol from ELF with name."""
@@ -55,14 +35,18 @@ class ElfMap(SQLiteCacheRow):
         if symbol_id is None:
             raise ExplainError('There is no symbol with name {!r} in {!r}'
                                .format(symbol_name, self.name))
-        return SymbolMap(self.database, symbol_id[0])
+        return SymbolMap.from_cache(self.database, symbol_id[0])
 
     def symbols(self):
         """Yield all symbols in this ELF."""
         symbols = self.database.execute(
             'SELECT id FROM symbols WHERE elf=?', (self.row,)).fetchall()
         for symbol in symbols:
-            yield SymbolMap(self.database, symbol[0])
+            yield SymbolMap.from_cache(self.database, symbol[0])
+
+    @classmethod
+    def table(cls):
+        return 'elfs'
 
 
 class SymbolMap(SQLiteCacheRow):
@@ -90,12 +74,11 @@ class SymbolMap(SQLiteCacheRow):
     prime field of the symbol. Helper methods are provided to assist in the
     parsing of the fields.
     """
-    def __new__(cls, database, symbol_id):
-        return super(SymbolMap, cls).__new__(cls, database, 'symbols', symbol_id)
 
     def __init__(self, database, symbol_id):
         """Extract a symbol from the database with a global row number."""
-        super().__init__(database, 'symbols', symbol_id)
+        super().__init__(database, symbol_id)
+        self._field_cache = None
 
     @property
     def array(self):
@@ -110,27 +93,29 @@ class SymbolMap(SQLiteCacheRow):
         ...     count = array.multiplicity
         """
         try:
-            field = next(self.fields())
-        except StopIteration:
+            field = self.fields()[0]
+        except IndexError:
             return None
         return field if field.multiplicity != 0 else None
 
     @property
     def elf(self):
-        return ElfMap(self.database, self.query1('elf'))
+        return ElfMap.from_cache(self.database, self.query1('elf'))
 
     def field(self, name):
         """Return the field of the Symbol with the given name."""
         c = self.database.execute('SELECT id FROM fields WHERE symbol=? AND '
                                   'name=?', (self.row, name))
-        return FieldMap(self.database, c.fetchone()[0])
+        return FieldMap.from_cache(self.database, c.fetchone()[0])
 
     def fields(self):
         """Yields all of the fields in the Symbol."""
-        c = self.database.execute(
-            'SELECT id FROM fields WHERE symbol=? ORDER BY id', (self.row,))
-        for field in c.fetchall():
-            yield FieldMap(self.database, field[0])
+        if self._field_cache is None:
+            c = self.database.execute(
+                'SELECT id FROM fields WHERE symbol=? ORDER BY id', (self.row,))
+            self._field_cache = [FieldMap.from_cache(self.database, field[0])
+                                 for field in c.fetchall()]
+        return self._field_cache
 
     @staticmethod
     def from_name(database, name):
@@ -145,7 +130,7 @@ class SymbolMap(SQLiteCacheRow):
         """
         symbol_id = database.execute('SELECT id FROM symbols WHERE name=?',
                                      (name,)).fetchone()[0]
-        return SymbolMap(database, symbol_id)
+        return SymbolMap.from_cache(database, symbol_id)
 
     @property
     def is_base_type(self):
@@ -154,7 +139,7 @@ class SymbolMap(SQLiteCacheRow):
         A base type is a symbol that cannot be decomposed into composite fields.
         It can either be a symbol with no fields, or a pointer.
         """
-        return len(list(self.fields())) == 0 or self.pointer is not None
+        return len(self.fields()) == 0 or self.fields()[0].name == '[pointer]'
 
     @property
     def is_primitive(self):
@@ -177,8 +162,8 @@ class SymbolMap(SQLiteCacheRow):
         ...     points_at = pointer.type
         """
         try:
-            field = next(self.fields())
-        except StopIteration:
+            field = self.fields()[0]
+        except IndexError:
             return None
         return field if field.name == '[pointer]' else None
 
@@ -188,7 +173,11 @@ class SymbolMap(SQLiteCacheRow):
         if self.is_base_type or not self.typedef:
             return self
         # If here we can assume that it has fields. No try/catch required.
-        return next(self.fields()).type.simple
+        return self.fields()[0].type.simple
+
+    @classmethod
+    def table(cls):
+        return 'symbols'
 
     @property
     def typedef(self):
@@ -198,8 +187,8 @@ class SymbolMap(SQLiteCacheRow):
         the prime field.
         """
         try:
-            field = next(self.fields())
-        except StopIteration:
+            field = self.fields()[0]
+        except IndexError:
             return None
         return field if field.name == 'typedef' else None
 
@@ -208,27 +197,29 @@ class FieldMap(SQLiteCacheRow):
     """A field of a Symbol. See the documentation of SymbolMap for how to
     interpret the prime field of a SymbolMap."""
 
-    def __new__(cls, database, row):
-        return super(FieldMap, cls).__new__(cls, database, 'fields', row)
-
     def __init__(self, database, row):
         """Extract a field from the database with the given global row."""
-        super().__init__(database, 'fields', row)
+        super().__init__(database, row)
 
     @property
     def bit_field(self):
         """Return the bit field if the field is a bit field, otherwise None."""
         field = self.database.execute('SELECT field FROM bit_fields WHERE '
                                       'field=?', (self.row,)).fetchone()
-        return None if field is None else BitFieldMap(self.database, field[0])
+        return None if field is None else \
+            BitFieldMap.from_cache(self.database, field[0])
+
+    @classmethod
+    def table(cls):
+        return 'fields'
 
     @property
     def type(self):
         """Return what symbol the field contains."""
-        return SymbolMap(self.database, self.query1('type'))
+        return SymbolMap.from_cache(self.database, self.query1('type'))
 
 
-class BitFieldMap(SQLiteRow):
+class BitFieldMap(SQLiteCacheRow):
     """A bit field for a field.
 
     Bit fields are uncommon optional parts of fields, so they are given a
@@ -239,4 +230,8 @@ class BitFieldMap(SQLiteRow):
     def __init__(self, database, field_row):
         """Extract the bit field from the database that references the given
         field."""
-        super(BitFieldMap, self).__init__(database, 'bit_fields', field_row)
+        super(BitFieldMap, self).__init__(database, field_row)
+
+    @classmethod
+    def table(cls):
+        return 'bit_fields'

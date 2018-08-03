@@ -138,6 +138,7 @@ class ArraySymbol(Symbol, list):
         super().__init__(symbol_map=symbol_map, buffer=buffer, offset=offset,
                          little_endian=little_endian)
         unit_byte_size = unit_symbol.byte_size
+
         self.extend(
             Symbol(unit_symbol, self.buffer, self.offset + (unit_byte_size * i))
             for i in range(count))
