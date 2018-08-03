@@ -628,10 +628,10 @@ def main():
                     'output files with symbol and field names.')
     parser.add_argument('-c', '--continue', action='store_true', dest='cont',
                         help='continue adding ELF files if one fails')
-    parser.add_argument('--files', nargs='*', default=[],
-                        help='elf file(s) to load')
-    parser.add_argument('--database', default=':memory:',
+    parser.add_argument('database', default=':memory:',
                         help='use or create a database on the file system')
+    parser.add_argument('files', nargs='*', default=[],
+                        help='elf file(s) to load')
     parser.add_argument('-q', '--no-log', action='store_true',
                         help='disables all console logging')
     parser.add_argument('--sql', action='store_true',
