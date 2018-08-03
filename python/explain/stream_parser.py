@@ -119,6 +119,14 @@ class CfeStreamParser(StreamParser, metaclass=ABCMeta):
         self.stream.clear()
 
 
+class DsStreamParser(CfeStreamParser, CcsdsMixin):
+    def __init__(self, database, stream):
+        super().__init__(database, stream)
+        self.ds_header = self.read_symbol(
+            SymbolMap.from_name(database, 'DS_FileHeader_t'))
+        self.stream.clear()
+
+
 def main(parse_class: Type[StreamParser]):
     parser = argparse.ArgumentParser()
     source = parser.add_mutually_exclusive_group(required=True)
@@ -148,8 +156,8 @@ def main(parse_class: Type[StreamParser]):
         for n, p in enumerate(s):
             if not n % 100:
                 print('{:6d}'.format(n))
-                if n >= 1000:
-                    exit()
+                # if n >= 1000:
+                #     exit()
             yield p
 
     try:
@@ -170,8 +178,9 @@ def main(parse_class: Type[StreamParser]):
 
 
 if __name__ == '__main__':
-    print(
-        'This is an abstract script. Users should subclass StreamParser in\n'
-        'their own code and may then optionally call the main method of this\n'
-        'script to invoke some basic command line parsing.')
-    exit(0)
+    main(DsStreamParser)
+    # print(
+    #     'This is an abstract script. Users should subclass StreamParser in\n'
+    #     'their own code and may then optionally call the main method of this\n'
+    #     'script to invoke some basic command line parsing.')
+    # exit(0)
