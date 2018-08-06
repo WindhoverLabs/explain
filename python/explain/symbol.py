@@ -35,18 +35,18 @@ STRUCT_MAPPING['uint8'] = STRUCT_MAPPING['unsigned char']
 def struct_fmt(symbol: SymbolMap):
     # print("fmt: ", symbol.name)
     try:
-        fmt = STRUCT_MAPPING[symbol.name]
+        fmt = STRUCT_MAPPING[symbol['name']]
     except KeyError as e:
-        if '*' in symbol.name:
-            bit64 = symbol.byte_size == 8
+        if '*' in symbol['name']:
+            bit64 = symbol['byte_size'] == 8
             mapping = 'unsigned long' if bit64 else 'unsigned int'
             fmt = STRUCT_MAPPING[mapping]
-        elif symbol.byte_size == 4:
+        elif symbol['byte_size'] == 4:
             # print('Struct doesn\'t recognize {!r}'.format(symbol.name))
             fmt = STRUCT_MAPPING['unsigned int']
         else:
             raise ExplainError('Can\'t unpack type {!r}'
-                               .format(symbol.name)) from e
+                               .format(symbol['name'])) from e
     return fmt
 
 
@@ -68,7 +68,7 @@ class Symbol(Mapping):
                  offset: int, little_endian=None):
         self.buffer = buffer
         self.little_endian = little_endian if little_endian is not None \
-            else symbol_map.elf.little_endian
+            else symbol_map.elf['little_endian']
         self.offset = offset
         self.symbol = symbol_map
 
@@ -76,7 +76,7 @@ class Symbol(Mapping):
         field = self.symbol.field(key)
         bit_field = field.bit_field
         kind = field.type.simple
-        symbol_offset = self.offset + field.byte_offset
+        symbol_offset = self.offset + field['byte_offset']
         array = kind.array
         if bit_field:
             symbol = BitFieldSymbol(
@@ -91,7 +91,7 @@ class Symbol(Mapping):
                 symbol_map=kind,
                 buffer=self.buffer,
                 offset=symbol_offset,
-                count=array.multiplicity,
+                count=array['multiplicity'],
                 unit_symbol=array.type,
                 little_endian=self.little_endian
             )
@@ -108,13 +108,13 @@ class Symbol(Mapping):
         if self.symbol.pointer:
             return
         for field in self.symbol.fields():
-            yield field.name
+            yield field['name']
 
     def __len__(self):
-        return len(list(self.symbol.fields()))
+        return len(self.symbol.fields())
 
     def __repr__(self):
-        return 'Symbol({}, offset={})'.format(self.symbol.name, self.offset)
+        return 'Symbol({}, offset={})'.format(self.symbol['name'], self.offset)
 
     @property
     def value(self):
@@ -122,7 +122,7 @@ class Symbol(Mapping):
                       self.little_endian)
 
     def flatten(self, name=''):
-        name = name or self.symbol.name
+        name = name or self.symbol['name']
         # print('flatten {} {}'.format(self.symbol, self.offset))
         if self.symbol.is_primitive:
             yield name, self.value
@@ -137,7 +137,7 @@ class ArraySymbol(Symbol, list):
                  little_endian=None):
         super().__init__(symbol_map=symbol_map, buffer=buffer, offset=offset,
                          little_endian=little_endian)
-        unit_byte_size = unit_symbol.byte_size
+        unit_byte_size = unit_symbol['byte_size']
 
         self.extend(
             Symbol(unit_symbol, self.buffer, self.offset + (unit_byte_size * i))
@@ -174,25 +174,25 @@ class BitFieldSymbol(Symbol):
 
     def __repr__(self):
         return 'BitField(value={!r}, byte_offset={}, bit_offset={})'.format(
-            self.value, self.offset, self.bit_field.bit_offset)
+            self.value, self.offset, self.bit_field['bit_offset'])
 
     @property
     def value(self):
-        bit_size = self.bit_field.bit_size
-        bit_offset = self.bit_field.bit_offset
+        bit_size = self.bit_field['bit_size']
+        bit_offset = self.bit_field['bit_offset']
         if bit_offset < 0:
             raise ExplainError('Can\'t handle negative bit offset now.')
         field_type = self.symbol
-        symbol_byte_size = field_type.byte_size
+        symbol_byte_size = field_type['byte_size']
         symbol_bit_size = symbol_byte_size * 8
         shift = (symbol_bit_size - bit_offset - bit_size)
         mask = pow(2, bit_size) - 1
         buffer = self.buffer[self.offset:self.offset + symbol_byte_size]
-        buffer = reversed(buffer) if field_type.elf.little_endian else buffer
+        buffer = reversed(buffer) if field_type.elf['little_endian'] else buffer
         memory = 0
         for b in buffer:
             memory = (memory << 8) + b
         bits = (memory >> shift) & mask
-        if self.bit_field.bit_size == 1:
+        if self.bit_field['bit_size'] == 1:
             return bits == 1
         return bits

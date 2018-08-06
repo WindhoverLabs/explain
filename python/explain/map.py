@@ -4,12 +4,12 @@ The Map module contains the helper classes for looking at an ElfReader database.
 import os
 
 from explain.explain_error import ExplainError
-from explain.sql import SQLiteRow, SQLiteCacheRow
+from explain.sql import SQLiteCacheRow, SQLiteNamedRow
 
 __all__ = ['ElfMap', 'SymbolMap', 'FieldMap', 'BitFieldMap']
 
 
-class ElfMap(SQLiteCacheRow):
+class ElfMap(SQLiteNamedRow):
     """An ELF file. Can be used to find symbols in the ELF."""
 
     def __init__(self, database, row):
@@ -49,7 +49,7 @@ class ElfMap(SQLiteCacheRow):
         return 'elfs'
 
 
-class SymbolMap(SQLiteCacheRow):
+class SymbolMap(SQLiteNamedRow):
     """A symbol in an ELF. Symbols can be anything from structures to unions to
     base types.
 
@@ -96,25 +96,31 @@ class SymbolMap(SQLiteCacheRow):
             field = self.fields()[0]
         except IndexError:
             return None
-        return field if field.multiplicity != 0 else None
+        return field if field['multiplicity'] != 0 else None
 
     @property
     def elf(self):
-        return ElfMap.from_cache(self.database, self.query1('elf'))
+        return ElfMap.from_cache(self.database, self['elf'])
 
     def field(self, name):
         """Return the field of the Symbol with the given name."""
-        c = self.database.execute('SELECT id FROM fields WHERE symbol=? AND '
-                                  'name=?', (self.row, name))
-        return FieldMap.from_cache(self.database, c.fetchone()[0])
+        if self._field_cache is None:
+            self._fields_fill_cache()
+        for field in self._field_cache:
+            if field['name'] == name:
+                return field
+        raise KeyError("No field with name {!r} found.".format(name))
+
+    def _fields_fill_cache(self):
+        c = self.database.execute(
+            'SELECT id FROM fields WHERE symbol=? ORDER BY id', (self.row,))
+        self._field_cache = [FieldMap.from_cache(self.database, field[0])
+                             for field in c.fetchall()]
 
     def fields(self):
         """Yields all of the fields in the Symbol."""
         if self._field_cache is None:
-            c = self.database.execute(
-                'SELECT id FROM fields WHERE symbol=? ORDER BY id', (self.row,))
-            self._field_cache = [FieldMap.from_cache(self.database, field[0])
-                                 for field in c.fetchall()]
+            self._fields_fill_cache()
         return self._field_cache
 
     @staticmethod
@@ -139,7 +145,8 @@ class SymbolMap(SQLiteCacheRow):
         A base type is a symbol that cannot be decomposed into composite fields.
         It can either be a symbol with no fields, or a pointer.
         """
-        return len(self.fields()) == 0 or self.fields()[0].name == '[pointer]'
+        fields = self.fields()
+        return len(fields) == 0 or fields[0]['name'] == '[pointer]'
 
     @property
     def is_primitive(self):
@@ -165,7 +172,7 @@ class SymbolMap(SQLiteCacheRow):
             field = self.fields()[0]
         except IndexError:
             return None
-        return field if field.name == '[pointer]' else None
+        return field if field['name'] == '[pointer]' else None
 
     @property
     def simple(self):
@@ -190,10 +197,10 @@ class SymbolMap(SQLiteCacheRow):
             field = self.fields()[0]
         except IndexError:
             return None
-        return field if field.name == 'typedef' else None
+        return field if field['name'] == 'typedef' else None
 
 
-class FieldMap(SQLiteCacheRow):
+class FieldMap(SQLiteNamedRow):
     """A field of a Symbol. See the documentation of SymbolMap for how to
     interpret the prime field of a SymbolMap."""
 
@@ -216,7 +223,7 @@ class FieldMap(SQLiteCacheRow):
     @property
     def type(self):
         """Return what symbol the field contains."""
-        return SymbolMap.from_cache(self.database, self.query1('type'))
+        return SymbolMap.from_cache(self.database, self['type'])
 
 
 class BitFieldMap(SQLiteCacheRow):

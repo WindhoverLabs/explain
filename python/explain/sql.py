@@ -1,5 +1,4 @@
-import sqlite3
-from abc import abstractmethod, ABC, ABCMeta
+from abc import abstractmethod, ABCMeta
 
 
 class SQLiteBacked(object):
@@ -8,7 +7,7 @@ class SQLiteBacked(object):
         self.database = database
 
 
-class SQLiteRow(SQLiteBacked):
+class SQLiteRow(SQLiteBacked, dict):
     """An object that is represented by a single row in a database.
 
     Provides helper methods for accessing columns/attributes of the row.
@@ -21,43 +20,19 @@ class SQLiteRow(SQLiteBacked):
         if not isinstance(row, int):
             raise TypeError('Row primary key must be int. Got ' + repr(row))
         self.row = row
-        self._column_cache = {}
-
-    def __getattr__(self, item):
-        """If attribute is not found, fallback on database query for column."""
-        try:
-            return self.query1(item)
-        except sqlite3.OperationalError:
-            raise AttributeError(self.__class__.__name__ +
-                                 ' has no attribute nor backing column ' +
-                                 repr(item))
+        self.refresh_cache()
 
     def __repr__(self):
         return '{}({})'.format(
             self.__class__.__name__,
-            ', '.join('{}={!r}'.format(*c) for c in self.query('*')))
+            ', '.join('{}={!r}'.format(*c) for c in self.items()))
 
-    def query(self, *columns):
-        """Query columns from the row and return a list of column-value
-        tuples."""
-        cols = ', '.join(columns)
+    def refresh_cache(self):
         c = self.database.execute(
-            self._QUERY.format(cols, self.table(), self.row))
+            self._QUERY.format('*', self.table(), self.row))
         result = [(k[0], v) for k, v in zip(c.description, c.fetchone())]
         """:type: List[Tuple[str, Any]]"""
-        return result
-
-    def query1(self, column):
-        """Query a single column and return only the value of the column."""
-        try:
-            result = self._column_cache[column]
-            # print('Cache Hit:  ', id(self), self, column)
-            return result
-        except KeyError:
-            # print('Cache Miss: ', id(self), self, column)
-            result = self.query(column)[0][1]
-            self._column_cache[column] = result
-            return result
+        self.update(result)
 
     @classmethod
     @abstractmethod
@@ -77,3 +52,9 @@ class SQLiteCacheRow(SQLiteRow, metaclass=ABCMeta):
             row = cls(database, row)
             SQLiteCacheRow.ROW_CACHE[key] = row
             return row
+
+
+class SQLiteNamedRow(SQLiteCacheRow, metaclass=ABCMeta):
+    def __init__(self, database, row):
+        super().__init__(database, row)
+        self._name_cache = None
