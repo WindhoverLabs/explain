@@ -31,16 +31,20 @@ class StreamCache(RawIOBase):
     def __init__(self, stream):
         self.stream = stream
         self.cache = bytes()
+        self.cache_len = 0
 
     def clear(self):
         self.cache = bytes()
+        self.cache_len = 0
 
     def read(self, size: int = ...):
-        to_read = max(0, size - len(self.cache))
+        to_read = max(0, size - self.cache_len)
         read = self.stream.read(to_read)
-        if len(read) != to_read:
+        len_read = len(read)
+        if len_read != to_read:
             raise EndOfStream
         self.cache += read
+        self.cache_len += len_read
         return self.cache
 
 
@@ -136,8 +140,8 @@ def main(parse_class: Type[StreamParser]):
         for n, p in enumerate(s):
             if not n % 1000:
                 print('{:6d}, {:.2f}'.format(n, time() - start_time))
-                # if n >= 2000:
-                #     exit()
+                if n >= 10000:
+                    exit()
             yield p
 
     try:

@@ -1,7 +1,7 @@
 import struct
 from abc import abstractmethod, ABCMeta
 from collections import Mapping, Iterable
-from typing import Optional
+from typing import Optional, List
 
 from explain.explain_error import ExplainError
 from explain.map import SymbolMap, BitFieldMap
@@ -133,23 +133,24 @@ class Symbol(Mapping):
                 yield from symbol.flatten(name + '.' + field_name)
 
 
-class ArraySymbol(Symbol, list):
+class ArraySymbol(Symbol):
+    array = ...  # type: List[Symbol]
+
     def __init__(self, symbol_map: SymbolMap, buffer: memoryview,
                  offset: int, count: int, unit_symbol: SymbolMap,
                  little_endian=None):
         super().__init__(symbol_map=symbol_map, buffer=buffer, offset=offset,
                          little_endian=little_endian)
         unit_byte_size = unit_symbol['byte_size']
-
-        self.extend(
-            Symbol(unit_symbol, self.buffer, self.offset + (unit_byte_size * i))
-            for i in range(count))
+        self.array = [0]*count
+        for i in range(count):
+            self.array[i] = Symbol(unit_symbol, self.buffer, self.offset + (unit_byte_size * i))
 
     def __getitem__(self, item):
-        return list.__getitem__(self, item)
+        return list.__getitem__(self.array, item)
 
     def __iter__(self):
-        return list.__iter__(self)
+        return list.__iter__(self.array)
 
     def __repr__(self):
         list_str = super(ArraySymbol, self).__repr__()
@@ -181,6 +182,8 @@ class BitFieldSymbol(Symbol):
         bit_size = self.bit_field['bit_size']
         bit_offset = self.bit_field['bit_offset']
         if bit_offset < 0:
+            # Negative bit offsets might "just work", but I don't know.
+            # Test when encountered.
             raise ExplainError('Can\'t handle negative bit offset now.')
         field_type = self.symbol
         symbol_byte_size = field_type['byte_size']
@@ -188,7 +191,7 @@ class BitFieldSymbol(Symbol):
         shift = (symbol_bit_size - bit_offset - bit_size)
         mask = pow(2, bit_size) - 1
         buffer = self.buffer[self.offset:self.offset + symbol_byte_size]
-        buffer = reversed(buffer) if field_type.elf['little_endian'] else buffer
+        buffer = reversed(buffer) if self.little_endian else buffer
         memory = 0
         for b in buffer:
             memory = (memory << 8) + b

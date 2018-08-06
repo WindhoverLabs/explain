@@ -134,7 +134,7 @@ class SymbolMap(SQLiteNamedRow):
         It can either be a symbol with no fields, or a pointer.
         """
         fields = self.fields
-        return len(fields) == 0 or fields[0]['name'] == '[pointer]'
+        return not bool(fields) or fields[0]['name'] == '[pointer]'
 
     @property
     def is_primitive(self):
