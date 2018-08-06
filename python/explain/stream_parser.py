@@ -140,8 +140,8 @@ def main(parse_class: Type[StreamParser]):
         for n, p in enumerate(s):
             if not n % 1000:
                 print('{:6d}, {:.2f}'.format(n, time() - start_time))
-                if n >= 10000:
-                    exit()
+                if n >= 30000:
+                    raise StopIteration
             yield p
 
     try:

@@ -5,6 +5,7 @@ import os
 
 from explain.explain_error import ExplainError
 from explain.sql import SQLiteCacheRow, SQLiteNamedRow
+from explain.struct_fmt import struct_fmt
 
 __all__ = ['ElfMap', 'SymbolMap', 'FieldMap', 'BitFieldMap']
 
@@ -70,33 +71,34 @@ class SymbolMap(SQLiteNamedRow):
     prime field of the symbol. Helper methods are provided to assist in the
     parsing of the fields.
     """
+    SYMBOL_NAME_CACHE = {}
 
     def __init__(self, database, symbol_id):
         super().__init__(database, symbol_id)
+        self.elf = ElfMap.from_cache(self.database, self['elf'])
         self.fields = None
         self._refresh_cache()
-
-    @property
-    def array(self):
-        """Return the prime field if the Symbol is an array. Otherwise None.
-
-        If given, the array type will be the type attribute of the prime field,
-        and the count will be the multiplicity attribute.
-
-        >>> array = SymbolMap().array
-        >>> if array:
-        ...     kind = array.type
-        ...     count = array.multiplicity
+        self.array = None
+        self.is_base_type = True
         """
-        try:
-            field = self.fields[0]
-        except IndexError:
-            return None
-        return field if field['multiplicity'] != 0 else None
+        A base type is a symbol that cannot be decomposed into composite fields.
+        It can either be a symbol with no fields, or a pointer.
+        """
+        self.pointer = None
+        self.simple = self
+        self.typedef = None
 
-    @property
-    def elf(self):
-        return ElfMap.from_cache(self.database, self['elf'])
+        if bool(self.fields):
+            field0 = self.fields[0]
+            self.array = field0 if field0['multiplicity'] != 0 else None
+            self.is_base_type = field0['name'] == '[pointer]'
+            self.pointer = field0 if field0['name'] == '[pointer]' else None
+            self.typedef = field0 if field0['name'] == 'typedef' else None
+            self.simple = field0.type.simple if self.typedef else self
+        self.is_primitive = self.simple.is_base_type
+
+    def __hash__(self):
+        return hash((self.database, self.table(), self.row))
 
     def field(self, name):
         """Return the field of the Symbol with the given name."""
@@ -122,89 +124,31 @@ class SymbolMap(SQLiteNamedRow):
             >>> elf_map = ElfMap.from_name(database, 'elf.so')
             >>> symbol_map = elf_map.symbol(name)
         """
-        symbol_id = database.execute('SELECT id FROM symbols WHERE name=?',
-                                     (name,)).fetchone()[0]
+        # Build name->id index in memory.
+        if database not in SymbolMap.SYMBOL_NAME_CACHE:
+            SymbolMap.SYMBOL_NAME_CACHE[database] = {
+                name: symbol_id for symbol_id, name in database.execute(
+                    'SELECT id, name FROM symbols').fetchall()
+            }
+        symbol_id = SymbolMap.SYMBOL_NAME_CACHE[database][name]
         return SymbolMap.from_cache(database, symbol_id)
-
-    @property
-    def is_base_type(self):
-        """Return True if the symbol is a base type.
-
-        A base type is a symbol that cannot be decomposed into composite fields.
-        It can either be a symbol with no fields, or a pointer.
-        """
-        fields = self.fields
-        return not bool(fields) or fields[0]['name'] == '[pointer]'
-
-    @property
-    def is_primitive(self):
-        """Return True if the Symbol easily resolves to a base type.
-
-        Easily resolves means that the symbol is a chain of typedef's
-        to a base type.
-        """
-        return self.simple.is_base_type  # Note self.simple
-
-    @property
-    def pointer(self):
-        """Return the prime field if the Symbol is a pointer. Otherwise None.
-
-        If given, the type that is pointed to will be the type attribute of the
-        prime field.
-
-        >>> pointer = SymbolMap().pointer
-        >>> if pointer:
-        ...     points_at = pointer.type
-        """
-        try:
-            field = self.fields[0]
-        except IndexError:
-            return None
-        return field if field['name'] == '[pointer]' else None
-
-    @property
-    def simple(self):
-        """Follow typedefs and return the first symbol that is not a typedef."""
-        if self.is_base_type or not self.typedef:
-            return self
-        # If here we can assume that it has fields. No try/catch required.
-        return self.fields[0].type.simple
 
     @classmethod
     def table(cls):
         return 'symbols'
 
-    @property
-    def typedef(self):
-        """Return the prime field if the Symbol is a typedef. Otherwise None.
-
-        If given, the type that the typedef is of will be the type attribute of
-        the prime field.
-        """
-        try:
-            field = self.fields[0]
-        except IndexError:
-            return None
-        return field if field['name'] == 'typedef' else None
-
 
 class FieldMap(SQLiteNamedRow):
     """A field of a Symbol. See the documentation of SymbolMap for how to
     interpret the prime field of a SymbolMap."""
-
-    @property
-    def bit_field(self):
-        """Return the bit field if the field is a bit field, otherwise None."""
-        return BitFieldMap.from_cache(self.database, self.row)
+    def __init__(self, database, row):
+        super().__init__(database, row)
+        self.bit_field = BitFieldMap.from_cache(self.database, self.row)
+        self.type = SymbolMap.from_cache(self.database, self['type'])
 
     @classmethod
     def table(cls):
         return 'fields'
-
-    @property
-    def type(self):
-        """Return what symbol the field contains."""
-        return SymbolMap.from_cache(self.database, self['type'])
 
 
 class BitFieldMap(SQLiteCacheRow):

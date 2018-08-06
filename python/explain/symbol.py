@@ -1,67 +1,21 @@
 import struct
-from abc import abstractmethod, ABCMeta
-from collections import Mapping, Iterable
-from typing import Optional, List
+from collections import Mapping
+from typing import List
 
 from explain.explain_error import ExplainError
 from explain.map import SymbolMap, BitFieldMap
-
-# These are the types that struct knows how to unpack.
-# Custom types are below.
-STRUCT_MAPPING = {
-    'char': 'b',
-    'unsigned char': 'B',
-    'short': 'h',
-    'unsigned short': 'H',
-    'int': 'i',
-    'unsigned int': 'I',
-    'long': 'l',
-    'unsigned long': 'L',
-    'long long': 'q',
-    'unsigned long long': 'Q',
-    'float': 'f',
-    'double': 'd',
-    'ptr': 'P'
-}
-# Custom types that map different type names to common types.
-STRUCT_MAPPING['long int'] = STRUCT_MAPPING['long']
-STRUCT_MAPPING['long long unsigned int'] = STRUCT_MAPPING['unsigned long long']
-STRUCT_MAPPING['long unsigned int'] = STRUCT_MAPPING['unsigned long']
-STRUCT_MAPPING['short int'] = STRUCT_MAPPING['short']
-STRUCT_MAPPING['short unsigned int'] = STRUCT_MAPPING['unsigned short']
-STRUCT_MAPPING['uint32'] = STRUCT_MAPPING['unsigned int']
-STRUCT_MAPPING['uint16'] = STRUCT_MAPPING['unsigned short']
-STRUCT_MAPPING['uint8'] = STRUCT_MAPPING['unsigned char']
+from explain.struct_fmt import struct_fmt
 
 
-def struct_fmt(symbol: SymbolMap):
-    # print("fmt: ", symbol.name)
-    try:
-        fmt = STRUCT_MAPPING[symbol['name']]
-    except KeyError as e:
-        if '*' in symbol['name']:
-            bit64 = symbol['byte_size'] == 8
-            mapping = 'unsigned long' if bit64 else 'unsigned int'
-            fmt = STRUCT_MAPPING[mapping]
-        elif symbol['byte_size'] == 4:
-            # print('Struct doesn\'t recognize {!r}'.format(symbol.name))
-            fmt = STRUCT_MAPPING['unsigned int']
-        else:
-            raise ExplainError('Can\'t unpack type {!r}'
-                               .format(symbol['name'])) from e
-    return fmt
-
-
-def unpack(symbol, buffer, offset, little_endian=None):
+def unpack(fmt, buffer, offset, little_endian):
     """Use the struct module to unpack a single part of a structure.
 
     This is slightly inefficient because each member of the struct has to be
     unpacked individually, but it's easier this way due to how Symbols are
     dynamically defined. There isn't a preset list of Symbols.
     """
-    end = '<' if (little_endian if little_endian is not None
-                  else symbol.elf.little_endian) else '>'
-    b = struct.unpack_from(end + struct_fmt(symbol), buffer, offset)[0]
+    end = '<' if little_endian else '>'
+    b = struct.unpack_from(end + fmt, buffer, offset)[0]
     return b
 
 
@@ -73,6 +27,8 @@ class Symbol(Mapping):
             else symbol_map.elf['little_endian']
         self.offset = offset
         self.symbol = symbol_map
+        if symbol_map.is_primitive:
+            self.value = unpack(struct_fmt(symbol_map), buffer, offset, little_endian)
 
     def __getitem__(self, key):
         field = self.symbol.field(key)
@@ -118,19 +74,15 @@ class Symbol(Mapping):
     def __repr__(self):
         return 'Symbol({}, offset={})'.format(self.symbol['name'], self.offset)
 
-    @property
-    def value(self):
-        return unpack(self.symbol, self.buffer, self.offset,
-                      self.little_endian)
-
     def flatten(self, name=''):
         name = name or self.symbol['name']
-        # print('flatten {} {}'.format(self.symbol, self.offset))
+        # print('flatten {} {} {} {}'.format(name, self.symbol, self.offset, self.symbol.is_base_type))
         if self.symbol.is_primitive:
             yield name, self.value
         else:
+            name_dot = name + '.'
             for field_name, symbol in self.items():
-                yield from symbol.flatten(name + '.' + field_name)
+                yield from symbol.flatten(name_dot + field_name)
 
 
 class ArraySymbol(Symbol):
@@ -168,17 +120,19 @@ class BitFieldSymbol(Symbol):
         self.bit_field = bit_field
         if self.bit_field is None:
             raise ExplainError('bit_field is not allowed to be None.')
+        self.value = self._value()
 
     def __iter__(self):
-        print('Please don\'t iterate over a bitfield.')
-        return super(BitFieldSymbol, self).__iter__()
+        raise ExplainError('Please don\'t iterate over a bitfield.')
 
     def __repr__(self):
         return 'BitField(value={!r}, byte_offset={}, bit_offset={})'.format(
             self.value, self.offset, self.bit_field['bit_offset'])
 
-    @property
-    def value(self):
+    def flatten(self, name=''):
+        yield name, self.value
+
+    def _value(self):
         bit_size = self.bit_field['bit_size']
         bit_offset = self.bit_field['bit_offset']
         if bit_offset < 0:
