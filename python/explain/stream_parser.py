@@ -1,10 +1,12 @@
 import argparse
+import json
 import os
 import sqlite3
 from abc import abstractmethod, ABCMeta
 from collections import namedtuple, OrderedDict
 from csv import DictWriter
 from io import RawIOBase
+from time import time
 from typing import Type, Dict
 
 from explain.explain_error import ExplainError
@@ -62,7 +64,7 @@ class StreamParser(SQLiteBacked, metaclass=ABCMeta):
             self.stream.clear()
 
     def read_symbol(self, symbol_map: SymbolMap, little_endian=None):
-        bts = memoryview(self.stream.read(symbol_map.byte_size))
+        bts = memoryview(self.stream.read(symbol_map['byte_size']))
         return Symbol(symbol_map, bts, 0, little_endian=little_endian)
 
 
@@ -70,6 +72,9 @@ class CcsdsMixin(StreamParser):
     def __init__(self, database, stream):
         super().__init__(database, stream)
         self.ccsds_map = SymbolMap.from_name(self.database, 'CCSDS_PriHdr_t')
+        with open(os.path.join(
+                os.path.dirname(__file__), 'ccsds_map.json')) as fp:
+            self.msg_map = {int(k, 0): v for k, v in json.load(fp).items()}
 
     def get_structure_name(self):
         ccsds = self.read_symbol(self.ccsds_map)
@@ -77,34 +82,8 @@ class CcsdsMixin(StreamParser):
         app_id = (stream_id[0].value << 8) + stream_id[1].value
         length = (length[0].value << 8) + length[1].value + 7
         self.stream.read(length)
-        # TODO eventually remove hardcoded ids
-        mapping = {
-            0x0A05: 'PX4_ActuatorArmedMsg_t',
-            0x0A06: 'PX4_ActuatorControlsMsg_t',
-            0x0A0C: 'PX4_BatteryStatusMsg_t',
-            0x0A0E: 'PX4_CommanderStateMsg_t',
-            0x0A0F: 'PX4_ControlStateMsg_t',
-            0x0A13: 'PX4_DistanceSensorMsg_t',
-            0x0A24: 'PX4_HomePositionMsg_t',
-            0x0A25: 'PX4_InputRcMsg_t',
-            0x0A37: 'PX4_RcChannelsMsg_t',
-            0x0A3B: 'PX4_SensorAccelMsg_t',
-            0x0A3C: 'PX4_SensorBaroMsg_t',
-            0x0A3D: 'PX4_SensorCombinedMsg_t',
-            0x0A3E: 'PX4_SensorGyroMsg_t',
-            0x0A3F: 'PX4_SensorMagMsg_t',
-            0x0A4A: 'PX4_VehicleAttitudeMsg_t',
-            0x0A4B: 'PX4_VehicleAttitudeSetpointMsg_t',
-            0x0A4E: 'PX4_VehicleControlModeMsg_t',
-            0x0A50: 'PX4_VehicleGlobalPositionMsg_t',
-            0x0A52: 'PX4_VehicleGpsPositionMsg_t',
-            0x0A53: 'PX4_VehicleLandDetectedMsg_t',
-            0x0A54: 'PX4_VehicleLocalPositionMsg_t',
-            0x0A56: 'PX4_VehicleRatesSetpointMsg_t',
-            0x0A57: 'PX4_VehicleStatusMsg_t'
-        }
         try:
-            return mapping[app_id]
+            return self.msg_map[app_id]
         except KeyError:
             print('App ID not recognized: ', hex(app_id))
             raise EndOfStream
@@ -151,18 +130,19 @@ def main(parse_class: Type[StreamParser]):
         path = os.path.join(path, args.csv)
 
     stream_parser = parse_class(database, stream)
+    start_time = time()
 
     def prog(s):
         for n, p in enumerate(s):
-            if not n % 100:
-                print('{:6d}'.format(n))
-                # if n >= 1000:
+            if not n % 1000:
+                print('{:6d}, {:.2f}'.format(n, time() - start_time))
+                # if n >= 2000:
                 #     exit()
             yield p
 
     try:
         for symbol in prog(stream_parser.parse()):
-            name = symbol.symbol.name
+            name = symbol.symbol['name']
             flat = OrderedDict(symbol.flatten())
             if name not in csvs:
                 file = open(os.path.join(path, name + '.csv'), 'w')
