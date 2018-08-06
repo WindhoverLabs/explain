@@ -12,10 +12,6 @@ __all__ = ['ElfMap', 'SymbolMap', 'FieldMap', 'BitFieldMap']
 class ElfMap(SQLiteNamedRow):
     """An ELF file. Can be used to find symbols in the ELF."""
 
-    def __init__(self, database, row):
-        """Extract an ELF from the database with row number."""
-        super().__init__(database, row)
-
     @staticmethod
     def from_name(database, name):
         """Find ELF in database with a name and return it."""
@@ -76,9 +72,9 @@ class SymbolMap(SQLiteNamedRow):
     """
 
     def __init__(self, database, symbol_id):
-        """Extract a symbol from the database with a global row number."""
         super().__init__(database, symbol_id)
-        self._field_cache = None
+        self.fields = None
+        self._refresh_cache()
 
     @property
     def array(self):
@@ -93,7 +89,7 @@ class SymbolMap(SQLiteNamedRow):
         ...     count = array.multiplicity
         """
         try:
-            field = self.fields()[0]
+            field = self.fields[0]
         except IndexError:
             return None
         return field if field['multiplicity'] != 0 else None
@@ -104,24 +100,16 @@ class SymbolMap(SQLiteNamedRow):
 
     def field(self, name):
         """Return the field of the Symbol with the given name."""
-        if self._field_cache is None:
-            self._fields_fill_cache()
-        for field in self._field_cache:
+        for field in self.fields:
             if field['name'] == name:
                 return field
         raise KeyError("No field with name {!r} found.".format(name))
 
-    def _fields_fill_cache(self):
+    def _refresh_cache(self):
         c = self.database.execute(
             'SELECT id FROM fields WHERE symbol=? ORDER BY id', (self.row,))
-        self._field_cache = [FieldMap.from_cache(self.database, field[0])
-                             for field in c.fetchall()]
-
-    def fields(self):
-        """Yields all of the fields in the Symbol."""
-        if self._field_cache is None:
-            self._fields_fill_cache()
-        return self._field_cache
+        self.fields = [FieldMap.from_cache(self.database, field[0])
+                       for field in c.fetchall()]
 
     @staticmethod
     def from_name(database, name):
@@ -145,7 +133,7 @@ class SymbolMap(SQLiteNamedRow):
         A base type is a symbol that cannot be decomposed into composite fields.
         It can either be a symbol with no fields, or a pointer.
         """
-        fields = self.fields()
+        fields = self.fields
         return len(fields) == 0 or fields[0]['name'] == '[pointer]'
 
     @property
@@ -169,7 +157,7 @@ class SymbolMap(SQLiteNamedRow):
         ...     points_at = pointer.type
         """
         try:
-            field = self.fields()[0]
+            field = self.fields[0]
         except IndexError:
             return None
         return field if field['name'] == '[pointer]' else None
@@ -180,7 +168,7 @@ class SymbolMap(SQLiteNamedRow):
         if self.is_base_type or not self.typedef:
             return self
         # If here we can assume that it has fields. No try/catch required.
-        return self.fields()[0].type.simple
+        return self.fields[0].type.simple
 
     @classmethod
     def table(cls):
@@ -194,7 +182,7 @@ class SymbolMap(SQLiteNamedRow):
         the prime field.
         """
         try:
-            field = self.fields()[0]
+            field = self.fields[0]
         except IndexError:
             return None
         return field if field['name'] == 'typedef' else None
@@ -204,17 +192,10 @@ class FieldMap(SQLiteNamedRow):
     """A field of a Symbol. See the documentation of SymbolMap for how to
     interpret the prime field of a SymbolMap."""
 
-    def __init__(self, database, row):
-        """Extract a field from the database with the given global row."""
-        super().__init__(database, row)
-
     @property
     def bit_field(self):
         """Return the bit field if the field is a bit field, otherwise None."""
-        field = self.database.execute('SELECT field FROM bit_fields WHERE '
-                                      'field=?', (self.row,)).fetchone()
-        return None if field is None else \
-            BitFieldMap.from_cache(self.database, field[0])
+        return BitFieldMap.from_cache(self.database, self.row)
 
     @classmethod
     def table(cls):
@@ -233,11 +214,16 @@ class BitFieldMap(SQLiteCacheRow):
     separate SQL table that references the associated field id.
     """
     _QUERY = 'SELECT {} FROM {} WHERE field=={}'
+    BIT_FIELD_CACHE = {}
 
-    def __init__(self, database, field_row):
-        """Extract the bit field from the database that references the given
-        field."""
-        super(BitFieldMap, self).__init__(database, field_row)
+    @classmethod
+    def from_cache(cls, database, row):
+        if database not in BitFieldMap.BIT_FIELD_CACHE:
+            BitFieldMap.BIT_FIELD_CACHE[database] = [
+                row[0] for row in database.execute(
+                    'SELECT field FROM bit_fields').fetchall()]
+        if row in BitFieldMap.BIT_FIELD_CACHE[database]:
+            return super(BitFieldMap, cls).from_cache(database, row)
 
     @classmethod
     def table(cls):

@@ -1,5 +1,7 @@
 import struct
-from collections import Mapping
+from abc import abstractmethod, ABCMeta
+from collections import Mapping, Iterable
+from typing import Optional
 
 from explain.explain_error import ExplainError
 from explain.map import SymbolMap, BitFieldMap
@@ -107,7 +109,7 @@ class Symbol(Mapping):
     def __iter__(self):
         if self.symbol.pointer:
             return
-        for field in self.symbol.fields():
+        for field in self.symbol.fields:
             yield field['name']
 
     def __len__(self):
@@ -154,15 +156,13 @@ class ArraySymbol(Symbol, list):
         return 'ArrayField(values={}, offset={})'.format(list_str, self.offset)
 
     def flatten(self, name=''):
-        # print('Array flatten {} {} {}'.format(self.symbol.name, name, self.symbol.is_primitive))
         for n, elem in enumerate(self):
             yield from elem.flatten('{}[{}]'.format(name, n))
 
 
 class BitFieldSymbol(Symbol):
     def __init__(self, symbol_map: SymbolMap, bit_field: BitFieldMap,
-                 buffer: memoryview,
-                 offset: int, little_endian=None):
+                 buffer: memoryview, offset: int, little_endian=None):
         super().__init__(symbol_map, buffer, offset, little_endian)
         self.bit_field = bit_field
         if self.bit_field is None:

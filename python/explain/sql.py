@@ -45,7 +45,7 @@ class SQLiteCacheRow(SQLiteRow, metaclass=ABCMeta):
 
     @classmethod
     def from_cache(cls, database, row):
-        key = (database, cls.table(), row)
+        key = (database, cls, row)
         try:
             return SQLiteCacheRow.ROW_CACHE[key]
         except KeyError:
