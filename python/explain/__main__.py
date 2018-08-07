@@ -23,7 +23,7 @@ def json_symbol(symbol: SymbolMap):
         """
         fd = OrderedDict()
         fd['name'] = f['name']
-        # fd['type'] = f.type.name
+        # fd['type'] = f.type['name']
         bit_field = f.bit_field
         fd['bit_offset'] = f['byte_offset'] * 8
         if not bit_field:
@@ -38,8 +38,10 @@ def json_symbol(symbol: SymbolMap):
             fd['array'] = True
             fd['count'] = array['multiplicity']
             fd['kind'] = json_symbol(array.type.simple)
-        elif not simple.is_base_type and not kind.pointer:
+        elif not simple.is_base_type:
             fd['fields'] = [field(f) for f in simple.fields]
+        else:
+            fd['base_type'] = simple['name']
         return fd
     sd = OrderedDict()
     sd['name'] = symbol['name']
