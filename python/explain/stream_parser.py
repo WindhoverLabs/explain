@@ -119,30 +119,34 @@ class CfeStreamParser(StreamParser, metaclass=ABCMeta):
         return self.cfe_map['byte_size']
 
 
-class DsStreamParser(CfeStreamParser, CcsdsMixin):
-    def __init__(self, database, stream):
+class AirlinerStreamParser(CfeStreamParser, CcsdsMixin):
+    def __init__(self, database, stream, header_struct_name):
         super().__init__(database, stream)
-        self.ds_map = SymbolMap.from_name(self.database, 'DS_FileHeader_t')
-        self.ds_header = self.read_symbol(
-            self.ds_map, offset=self.cfe_map['byte_size']
-        )
+        self.header_map = SymbolMap.from_name(self.database, header_struct_name)
+        # self.header = self.read_symbol(
+        #     self.header_map, offset=self.cfe_map['byte_size']
+        # )
 
     @property
     def data_offset(self):
-        return super(DsStreamParser, self).data_offset \
-               + self.ds_map['byte_size']
+        return super(AirlinerStreamParser, self).data_offset \
+               + self.header_map['byte_size']
 
 
-def main(parse_class: Type[StreamParser]):
+def main():
     parser = argparse.ArgumentParser()
     source = parser.add_mutually_exclusive_group(required=True)
     source.add_argument('--database', default=':memory:',
                         help='database to read from')
     source.add_argument('--elf', help='ELF file to dynamically load')
-    parser.add_argument('stream', help='stream (file) to parse')
     parser.add_argument('--csv', help='directory to put output csv files')
+    parser.add_argument('stream', help='stream (file) to parse')
+    parser.add_argument('file_struct', metavar='file-struct',
+                        help='structure name that comes after '
+                             'the CCSDS file header')
 
     args = parser.parse_args()
+
     stream = open(args.stream, 'rb')
 
     database = sqlite3.connect(args.database)
@@ -156,15 +160,15 @@ def main(parse_class: Type[StreamParser]):
     if args.csv:
         path = os.path.join(path, args.csv)
 
-    stream_parser = parse_class(database, stream)
+    stream_parser = AirlinerStreamParser(database, stream, args.file_struct)
     start_time = time()
 
     def prog(s):
         for n, p in enumerate(s):
-            if not n % 1000:
-                print('{:6d}, {:.2f}'.format(n, time() - start_time))
-                # if n >= 30000:
-                #     raise StopIteration
+            # if not n % 1000:
+            #     print('{:6d}, {:.2f}'.format(n, time() - start_time))
+            #     if n >= 30000:
+            #         raise StopIteration
             yield p
 
     try:
@@ -185,7 +189,7 @@ def main(parse_class: Type[StreamParser]):
 
 
 if __name__ == '__main__':
-    main(DsStreamParser)
+    main()
     # print(
     #     'This is an abstract script. Users should subclass StreamParser in\n'
     #     'their own code and may then optionally call the main method of this\n'

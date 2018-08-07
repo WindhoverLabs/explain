@@ -6,7 +6,6 @@ from typing import Any, Union, Optional
 
 from explain.explain_error import ExplainError
 from explain.sql import SQLiteCacheRow, SQLiteNamedRow
-from explain.struct_fmt import struct_fmt
 
 __all__ = ['ElfMap', 'SymbolMap', 'FieldMap', 'BitFieldMap']
 

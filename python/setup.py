@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='explain',
-    version='0.3',
+    version='0.4',
     author='Windhover Labs',
     author_email='evanderwerf@windhoverlabs.com',
     description='Generate structure mapping files for parsing Airliner logs.',
@@ -12,10 +12,14 @@ setup(
     install_requires=[
         'pyelftools'
     ],
+    package_data={
+        'explain': ['ccsds_map.json']
+    },
     entry_points={
         'console_scripts': [
             'elf_reader = explain.elf_reader:main',
-            'explain = explain.__main__:main'
+            'explain = explain.__main__:main',
+            'parse = explain.stream_parser:main'
         ]
     }
 )

@@ -58,8 +58,8 @@ def json_output(file_stream, elf, symbols):
     will need a real name to differentiate it.
     """
     out = OrderedDict()
-    out['file'] = elf.name
-    out['little_endian'] = elf.little_endian == 1
+    out['file'] = elf['name']
+    out['little_endian'] = elf['little_endian'] == 1
     out['symbols'] = [json_symbol(s) for s in symbols]
     json.dump(out, file_stream, indent='  ')
 
@@ -95,6 +95,9 @@ def main():
         symbols = (elf.symbol(symbol_name=args.symbol),) if not args.all else \
             elf.symbols()
     else:
+        if args.all:
+            print('Must specify a file with the -a/--all argument.')
+            exit(1)
         symbol = SymbolMap.from_name(db, args.symbol)
         elf = symbol.elf
         symbols = (symbol,)
