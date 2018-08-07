@@ -21,6 +21,10 @@ class EndOfStream(ExplainError, StopIteration):
     pass
 
 
+class UnknownMessageId(ExplainError):
+    """Raised when a message ID is encountered that is unknown."""
+
+
 class StreamCache(RawIOBase):
     """Caches stream output until cleared.
 
@@ -89,8 +93,7 @@ class CcsdsMixin(StreamParser):
         try:
             return self.msg_map[app_id]
         except KeyError:
-            print('App ID not recognized: ', hex(app_id))
-            raise EndOfStream
+            raise UnknownMessageId('App ID not recognized: ', hex(app_id))
 
 
 class CfeStreamParser(StreamParser, metaclass=ABCMeta):
