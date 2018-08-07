@@ -15,13 +15,15 @@ def unpack(fmt, buffer, offset, little_endian):
     unpacked individually, but it's easier this way due to how Symbols are
     dynamically defined. There isn't a preset list of Symbols.
     """
-    end = '<' if little_endian else '>'
-    b = struct.unpack_from(end + fmt, buffer, offset)[0]
+    b = struct.unpack_from(('<' if little_endian else '>') + fmt, buffer, offset)[0]
     return b
 
 
 class Symbol(Mapping):
     """A representation of a Symbol in a buffer of memory."""
+
+    __slots__ = ('buffer', 'little_endian', 'offset', 'symbol_map', 'value')
+
     def __init__(self, symbol_map: SymbolMap, buffer: memoryview,
                  offset: int, little_endian=None):
         self.buffer = buffer
@@ -91,7 +93,6 @@ class Symbol(Mapping):
 
 class ArraySymbol(Symbol):
     """A representation of an array from a buffer of memory."""
-    array = ...  # type: List[Symbol]
 
     def __init__(self, symbol_map: SymbolMap, buffer: memoryview,
                  offset: int, count: int, unit_symbol: SymbolMap,

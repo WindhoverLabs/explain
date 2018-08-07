@@ -5,7 +5,7 @@ import sqlite3
 import struct
 from abc import abstractmethod, ABCMeta
 from collections import namedtuple, OrderedDict
-from csv import DictWriter
+from csv import writer
 from io import RawIOBase
 from time import time
 from typing import Type, Dict, Tuple, Any, Union
@@ -174,11 +174,11 @@ def main(parse_class: Type[StreamParser]):
             if name not in csvs:
                 file = open(os.path.join(path, name + '.csv'), 'w')
                 fieldnames = flat.keys()
-                csv = DictWriter(file, fieldnames=fieldnames)
-                csv.writeheader()
+                csv = writer(file)
+                csv.writerow(fieldnames)
                 csvs[name] = CsvFilePair(csv, file)
             csv = csvs[name].csv
-            csv.writerow(flat)
+            csv.writerow(flat.values())
     finally:
         for _, file in csvs.values():
             file.close()
