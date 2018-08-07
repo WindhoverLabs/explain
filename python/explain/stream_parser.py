@@ -2,12 +2,13 @@ import argparse
 import json
 import os
 import sqlite3
+import struct
 from abc import abstractmethod, ABCMeta
 from collections import namedtuple, OrderedDict
 from csv import DictWriter
 from io import RawIOBase
 from time import time
-from typing import Type, Dict
+from typing import Type, Dict, Tuple, Any, Union
 
 from explain.explain_error import ExplainError
 from explain.map import SymbolMap
@@ -53,30 +54,35 @@ class StreamCache(RawIOBase):
 
 
 class StreamParser(SQLiteBacked, metaclass=ABCMeta):
-    """"""
-
     def __init__(self, database, stream):
-        super().__init__(database)
-        self.stream = StreamCache(stream)
+        super(StreamParser, self).__init__(database)
+        self.stream = stream.read()
+
+    @property
+    @abstractmethod
+    def data_offset(self):
+        raise NotImplementedError
+
+    def read_symbol(self, symbol_map: SymbolMap, offset, little_endian=None):
+        return Symbol(symbol_map, self.stream, offset, little_endian)
 
     @abstractmethod
-    def get_structure_name(self) -> str:
-        """Advance the stream to the next structure and return the name of the
-        structure."""
+    def structures(self, offset=0) -> Tuple[str, int]:
+        """Yield the name and offset of each structure in the
+        stream starting at offset."""
         raise NotImplementedError
 
     def parse(self):
-        while True:
-            name = self.get_structure_name()
-            yield self.read_symbol(SymbolMap.from_name(self.database, name))
-            self.stream.clear()
-
-    def read_symbol(self, symbol_map: SymbolMap, little_endian=None):
-        bts = memoryview(self.stream.read(symbol_map['byte_size']))
-        return Symbol(symbol_map, bts, 0, little_endian=little_endian)
+        for name, offset in self.structures(offset=self.data_offset):
+            yield self.read_symbol(
+                symbol_map=SymbolMap.from_name(self.database, name),
+                offset=offset)
 
 
-class CcsdsMixin(StreamParser):
+class CcsdsMixin(StreamParser, metaclass=ABCMeta):
+    ccsds_map = ...  # type: SymbolMap
+    msg_map = ...  # type: Dict[int, str]
+
     def __init__(self, database, stream):
         super().__init__(database, stream)
         self.ccsds_map = SymbolMap.from_name(self.database, 'CCSDS_PriHdr_t')
@@ -84,33 +90,47 @@ class CcsdsMixin(StreamParser):
                 os.path.dirname(__file__), 'ccsds_map.json')) as fp:
             self.msg_map = {int(k, 0): v for k, v in json.load(fp).items()}
 
-    def get_structure_name(self):
-        ccsds = self.read_symbol(self.ccsds_map)
-        stream_id, length = ccsds['StreamId'], ccsds['Length']
-        app_id = (stream_id[0].value << 8) + stream_id[1].value
-        length = (length[0].value << 8) + length[1].value + 7
-        self.stream.read(length)
-        try:
-            return self.msg_map[app_id]
-        except KeyError:
-            raise UnknownMessageId('App ID not recognized: ', hex(app_id))
+    def structures(self, offset=0):
+        length = 0
+        while True:
+            offset += length
+            ccsds = self.read_symbol(self.ccsds_map, offset=offset)
+            try:
+                stream_id, length = ccsds['StreamId'], ccsds['Length']
+            except struct.error:
+                raise EndOfStream
+            app_id = (stream_id[0].value << 8) + stream_id[1].value
+            length = (length[0].value << 8) + length[1].value + 7
+            try:
+                yield self.msg_map[app_id], offset
+            except KeyError:
+                raise UnknownMessageId('App ID not recognized: ', hex(app_id))
 
 
 class CfeStreamParser(StreamParser, metaclass=ABCMeta):
     def __init__(self, database, stream):
         super().__init__(database, stream)
+        self.cfe_map = SymbolMap.from_name(self.database, 'CFE_FS_Header_t')
         self.cfe_header = self.read_symbol(
-            SymbolMap.from_name(self.database, 'CFE_FS_Header_t'),
-            little_endian=False)
-        self.stream.clear()
+            self.cfe_map, offset=0, little_endian=False)
+
+    @property
+    def data_offset(self):
+        return self.cfe_map['byte_size']
 
 
 class DsStreamParser(CfeStreamParser, CcsdsMixin):
     def __init__(self, database, stream):
         super().__init__(database, stream)
+        self.ds_map = SymbolMap.from_name(self.database, 'DS_FileHeader_t')
         self.ds_header = self.read_symbol(
-            SymbolMap.from_name(database, 'DS_FileHeader_t'))
-        self.stream.clear()
+            self.ds_map, offset=self.cfe_map['byte_size']
+        )
+
+    @property
+    def data_offset(self):
+        return super(DsStreamParser, self).data_offset \
+               + self.ds_map['byte_size']
 
 
 def main(parse_class: Type[StreamParser]):

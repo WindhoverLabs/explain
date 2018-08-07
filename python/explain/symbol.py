@@ -80,7 +80,7 @@ class Symbol(Mapping):
 
     def flatten(self, name=''):
         name = name or self.symbol_map['name']
-        # print('flatten {} {} {} {}'.format(name, self.symbol, self.offset, self.symbol.is_base_type))
+        # print('flatten {} {} {} {}'.format(name, self.symbol_map, self.offset, self.symbol_map.is_base_type))
         if self.symbol_map.is_primitive:
             yield name, self.value
         else:
