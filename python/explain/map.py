@@ -2,10 +2,10 @@
 The Map module contains the helper classes for looking at an ElfReader database.
 """
 import os
+from typing import Any, Union, Optional
 
 from explain.explain_error import ExplainError
 from explain.sql import SQLiteCacheRow, SQLiteNamedRow
-from explain.struct_fmt import struct_fmt
 
 __all__ = ['ElfMap', 'SymbolMap', 'FieldMap', 'BitFieldMap']
 
@@ -70,48 +70,65 @@ class SymbolMap(SQLiteNamedRow):
     of the information that identifies what the symbol is is exposed in the
     prime field of the symbol. Helper methods are provided to assist in the
     parsing of the fields.
+
+    SymbolMaps are immutable, but this is not enforced for performance reasons.
+    Do not reassign attributes outside of the constructor without knowing
+    exactly what ramifications it may have.
     """
+    array = ...  # type: Optional[FieldMap]
+    fields = ...  # type: list[FieldMap]
+    _fields_by_name = ...  # type: dict[str, FieldMap]
+    simple = ...  # type: SymbolMap
     SYMBOL_NAME_CACHE = {}
 
     def __init__(self, database, symbol_id):
         super().__init__(database, symbol_id)
+        # These are technically immutable but for performance reasons that is
+        # not enforced. Do not modify in user code outside of this class.
         self.elf = ElfMap.from_cache(self.database, self['elf'])
+        self.little_endian = self.elf['little_endian']
+        # Fields Cache
         self.fields = None
+        self._fields_by_name = None
         self._refresh_cache()
+        # Other properties.
         self.array = None
+        """If not None, this SymbolMap is an array of another SymbolMap. The
+        value will be the FieldMap for the array."""
         self.is_base_type = True
-        """
-        A base type is a symbol that cannot be decomposed into composite fields.
-        It can either be a symbol with no fields, or a pointer.
-        """
+        """A base type is a symbol that cannot be decomposed into composite 
+        fields. It can either be a symbol with no fields, or a pointer."""
         self.pointer = None
+        """If not None, this SymbolMap is a pointer, and the value is a
+        SymbolMap to the type represented by the pointer."""
         self.simple = self
+        """The next SymbolMap moving up the type hierarchy that is not a
+        typedef. Is `self` if `self.is_base_type`."""
         self.typedef = None
+        """If not None, this SymbolMap is a typedef to another type. The value
+        will be the SymbolMap that it is typedef'd to."""
 
         if bool(self.fields):
             field0 = self.fields[0]
             self.array = field0 if field0['multiplicity'] != 0 else None
             self.is_base_type = field0['name'] == '[pointer]'
-            self.pointer = field0 if field0['name'] == '[pointer]' else None
-            self.typedef = field0 if field0['name'] == 'typedef' else None
+            self.pointer = field0.type if field0['name'] == '[pointer]' else None
+            self.typedef = field0.type if field0['name'] == 'typedef' else None
             self.simple = field0.type.simple if self.typedef else self
         self.is_primitive = self.simple.is_base_type
-
-    def __hash__(self):
-        return hash((self.database, self.table(), self.row))
+        """True if this SymbolMap directly resolves to a base type through a
+        chain of typedefs."""
 
     def field(self, name):
         """Return the field of the Symbol with the given name."""
-        for field in self.fields:
-            if field['name'] == name:
-                return field
-        raise KeyError("No field with name {!r} found.".format(name))
+        return self._fields_by_name[name]
 
     def _refresh_cache(self):
         c = self.database.execute(
             'SELECT id FROM fields WHERE symbol=? ORDER BY id', (self.row,))
         self.fields = [FieldMap.from_cache(self.database, field[0])
                        for field in c.fetchall()]
+        self._fields_by_name = {field['name']: field for field in self.fields}
 
     @staticmethod
     def from_name(database, name):
@@ -141,6 +158,9 @@ class SymbolMap(SQLiteNamedRow):
 class FieldMap(SQLiteNamedRow):
     """A field of a Symbol. See the documentation of SymbolMap for how to
     interpret the prime field of a SymbolMap."""
+    bit_field = ...  # type: BitFieldMap
+    type = ...  # type: SymbolMap
+
     def __init__(self, database, row):
         super().__init__(database, row)
         self.bit_field = BitFieldMap.from_cache(self.database, self.row)

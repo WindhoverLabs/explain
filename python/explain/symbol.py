@@ -3,6 +3,7 @@ from collections import Mapping
 from typing import List
 
 from explain.explain_error import ExplainError
+from explain.map import FieldMap
 from explain.map import SymbolMap, BitFieldMap
 from explain.struct_fmt import struct_fmt
 
@@ -20,11 +21,12 @@ def unpack(fmt, buffer, offset, little_endian):
 
 
 class Symbol(Mapping):
+    """A representation of a Symbol in a buffer of memory."""
     def __init__(self, symbol_map: SymbolMap, buffer: memoryview,
                  offset: int, little_endian=None):
         self.buffer = buffer
         self.little_endian = little_endian if little_endian is not None \
-            else symbol_map.elf['little_endian']
+            else symbol_map.little_endian
         self.offset = offset
         self.symbol = symbol_map
         if symbol_map.is_primitive:
@@ -69,7 +71,7 @@ class Symbol(Mapping):
             yield field['name']
 
     def __len__(self):
-        return len(self.symbol.fields())
+        return len(self.symbol.fields)
 
     def __repr__(self):
         return 'Symbol({}, offset={})'.format(self.symbol['name'], self.offset)
@@ -86,6 +88,7 @@ class Symbol(Mapping):
 
 
 class ArraySymbol(Symbol):
+    """A representation of an array from a buffer of memory."""
     array = ...  # type: List[Symbol]
 
     def __init__(self, symbol_map: SymbolMap, buffer: memoryview,
@@ -114,6 +117,7 @@ class ArraySymbol(Symbol):
 
 
 class BitFieldSymbol(Symbol):
+    """A representation of a bitfield from a buffer of memory."""
     def __init__(self, symbol_map: SymbolMap, bit_field: BitFieldMap,
                  buffer: memoryview, offset: int, little_endian=None):
         super().__init__(symbol_map, buffer, offset, little_endian)

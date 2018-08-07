@@ -4,10 +4,10 @@ import sqlite3
 from collections import OrderedDict
 
 from explain.elf_reader import ElfReader
-from explain.map import ElfMap, SymbolMap
+from explain.map import ElfMap, SymbolMap, FieldMap
 
 
-def json_symbol(symbol):
+def json_symbol(symbol: SymbolMap):
     """Return a dictionary representing the given Symbol with the properties
     needed for this JSON output.
 
@@ -15,38 +15,38 @@ def json_symbol(symbol):
     the bit size, and the bit offset. Typedefs are collapsed and in general
     types are ignored/not useful for the use case of this particular JSON.
     """
-    def field(f):
+    def field(f: FieldMap):
         """Return a dictionary representing the given Field with the properties
         needed for this JSON output.
 
         This method recurses if the field is a non-simple non-pointer kind.
         """
         fd = OrderedDict()
-        fd['name'] = f.name
+        fd['name'] = f['name']
         # fd['type'] = f.type.name
         bit_field = f.bit_field
-        fd['bit_offset'] = f.byte_offset * 8
+        fd['bit_offset'] = f['byte_offset'] * 8
         if not bit_field:
-            fd['bit_size'] = f.type.byte_size * 8
+            fd['bit_size'] = f.type['byte_size'] * 8
         else:
-            fd['bit_offset'] += bit_field.bit_offset
-            fd['bit_size'] = bit_field.bit_size
-        kind = f.type  # type: SymbolMap
+            fd['bit_offset'] += bit_field['bit_offset']
+            fd['bit_size'] = bit_field['bit_size']
+        kind = f.type
         array = kind.array
-        simple = kind.simple  # type: SymbolMap
+        simple = kind.simple
         if array is not None:
             fd['array'] = True
-            fd['count'] = array.multiplicity
+            fd['count'] = array['multiplicity']
             fd['kind'] = json_symbol(array.type.simple)
         elif not simple.is_base_type and not kind.pointer:
-            fd['fields'] = [field(f) for f in simple.fields()]
+            fd['fields'] = [field(f) for f in simple.fields]
         return fd
     sd = OrderedDict()
-    sd['name'] = symbol.name
-    sd['bit_size'] = symbol.byte_size * 8
+    sd['name'] = symbol['name']
+    sd['bit_size'] = symbol['byte_size'] * 8
     if not symbol.pointer and not symbol.is_primitive:
         sd['fields'] = None if symbol.is_base_type else \
-            [field(f) for f in symbol.fields()]
+            [field(f) for f in symbol.fields]
     return sd
 
 
