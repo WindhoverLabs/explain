@@ -146,7 +146,7 @@ def main(parse_class: Type[StreamParser]):
 
     try:
         for symbol in prog(stream_parser.parse()):
-            name = symbol.symbol['name']
+            name = symbol.symbol_map['name']
             flat = OrderedDict(symbol.flatten())
             if name not in csvs:
                 file = open(os.path.join(path, name + '.csv'), 'w')

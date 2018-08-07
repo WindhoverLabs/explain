@@ -28,12 +28,14 @@ class Symbol(Mapping):
         self.little_endian = little_endian if little_endian is not None \
             else symbol_map.little_endian
         self.offset = offset
-        self.symbol = symbol_map
+        self.symbol_map = symbol_map
         if symbol_map.is_primitive:
-            self.value = unpack(struct_fmt(symbol_map), buffer, offset, little_endian)
+            if symbol_map.fmt is None:
+                symbol_map.fmt = struct_fmt(symbol_map)
+            self.value = unpack(symbol_map.fmt, buffer, offset, little_endian)
 
     def __getitem__(self, key):
-        field = self.symbol.field(key)
+        field = self.symbol_map.field(key)
         bit_field = field.bit_field
         kind = field.type.simple
         symbol_offset = self.offset + field['byte_offset']
@@ -65,21 +67,21 @@ class Symbol(Mapping):
         return symbol
 
     def __iter__(self):
-        if self.symbol.pointer:
+        if self.symbol_map.pointer:
             return
-        for field in self.symbol.fields:
+        for field in self.symbol_map.fields:
             yield field['name']
 
     def __len__(self):
-        return len(self.symbol.fields)
+        return len(self.symbol_map.fields)
 
     def __repr__(self):
-        return 'Symbol({}, offset={})'.format(self.symbol['name'], self.offset)
+        return 'Symbol({}, offset={})'.format(self.symbol_map['name'], self.offset)
 
     def flatten(self, name=''):
-        name = name or self.symbol['name']
+        name = name or self.symbol_map['name']
         # print('flatten {} {} {} {}'.format(name, self.symbol, self.offset, self.symbol.is_base_type))
-        if self.symbol.is_primitive:
+        if self.symbol_map.is_primitive:
             yield name, self.value
         else:
             name_dot = name + '.'
@@ -143,7 +145,7 @@ class BitFieldSymbol(Symbol):
             # Negative bit offsets might "just work", but I don't know.
             # Test when encountered.
             raise ExplainError('Can\'t handle negative bit offset now.')
-        field_type = self.symbol
+        field_type = self.symbol_map
         symbol_byte_size = field_type['byte_size']
         symbol_bit_size = symbol_byte_size * 8
         shift = (symbol_bit_size - bit_offset - bit_size)

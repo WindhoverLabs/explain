@@ -6,6 +6,7 @@ from typing import Any, Union, Optional
 
 from explain.explain_error import ExplainError
 from explain.sql import SQLiteCacheRow, SQLiteNamedRow
+from explain.struct_fmt import struct_fmt
 
 __all__ = ['ElfMap', 'SymbolMap', 'FieldMap', 'BitFieldMap']
 
@@ -115,9 +116,14 @@ class SymbolMap(SQLiteNamedRow):
             self.pointer = field0.type if field0['name'] == '[pointer]' else None
             self.typedef = field0.type if field0['name'] == 'typedef' else None
             self.simple = field0.type.simple if self.typedef else self
+
         self.is_primitive = self.simple.is_base_type
         """True if this SymbolMap directly resolves to a base type through a
         chain of typedefs."""
+        self.fmt = None
+
+    def __hash__(self):
+        return hash((self.database, self.table(), self.row))
 
     def field(self, name):
         """Return the field of the Symbol with the given name."""
