@@ -80,25 +80,30 @@ class SymbolMap(SQLiteCacheRow):
     """
     array = ...  # type: Optional[FieldMap]
     fields = ...  # type: list[FieldMap]
-    _fields_by_name = ...  # type: dict[str, FieldMap]
+    fields_by_name = ...  # type: dict[str, FieldMap]
     simple = ...  # type: SymbolMap
     SYMBOL_NAME_CACHE = {}
 
     def __init__(self, database, symbol_id):
         super().__init__(database, symbol_id)
         # These are technically immutable but for performance reasons that is
-        # not enforced. Do not modify in user code outside of this class.
+        # not enforced. Do not modify attributes of SymbolMap in user code
+        # outside of this class without knowing exactly what you are doing.
         self.elf = ElfMap.from_cache(self.database, self['elf'])
         self.little_endian = self.elf['little_endian']
-        self._fmt = None
+        # Cache SQL column to attributes
+        self.byte_size = self['byte_size']
+        # Symbol value format as seen by the struct module. Updated externally.
+        self.fmt = None
         # Fields Cache
         self.fields = None
-        self._fields_by_name = None
+        self.fields_by_name = None
         self.refresh_field_cache()
         # Other properties.
-        self.array = None
-        """If not None, this SymbolMap is an array of another SymbolMap. The
-        value will be the FieldMap for the array."""
+        self.array = (0, None)
+        """If not (0, None), this SymbolMap is an array of another SymbolMap.
+        The value will otherwise be a 2-tuple, the 0th index is the size of the
+        array, and the 1th index will be the SymbolMap that the array is of."""
         self.is_base_type = True
         """A base type is a symbol that cannot be decomposed into composite 
         fields. It can either be a symbol with no fields, or a pointer."""
@@ -114,11 +119,13 @@ class SymbolMap(SQLiteCacheRow):
 
         if bool(self.fields):
             field0 = self.fields[0]
-            self.array = field0 if field0['multiplicity'] != 0 else None
-            self.pointer = field0.type if field0.is_pointer else None
+            count = field0['multiplicity']
+            field0_type = field0.type
+            self.array = count, (field0_type if count != 0 else None)
+            self.pointer = field0_type if field0.is_pointer else None
             self.is_base_type = self.pointer is not None
-            self.typedef = field0.type if field0['name'] == 'typedef' else None
-            self.simple = field0.type.simple if self.typedef else self
+            self.typedef = field0_type if field0['name'] == 'typedef' else None
+            self.simple = field0_type.simple if self.typedef else self
 
         self.is_primitive = self.simple.is_base_type
         """True if this SymbolMap directly resolves to a base type through a
@@ -126,16 +133,6 @@ class SymbolMap(SQLiteCacheRow):
 
     def __hash__(self):
         return hash((self.database, self.table(), self.row))
-
-    def field(self, name):
-        """Return the field of the Symbol with the given name."""
-        return self._fields_by_name[name]
-
-    @property
-    def fmt(self):
-        if self._fmt is None:
-            self._fmt = struct_fmt(self)
-        return self._fmt
 
     @staticmethod
     def from_name(database, name):
@@ -152,8 +149,7 @@ class SymbolMap(SQLiteCacheRow):
         if database not in SymbolMap.SYMBOL_NAME_CACHE:
             SymbolMap.SYMBOL_NAME_CACHE[database] = {
                 name: symbol_id for symbol_id, name in database.execute(
-                    'SELECT id, name FROM symbols').fetchall()
-            }
+                    'SELECT id, name FROM symbols').fetchall()}
         symbol_id = SymbolMap.SYMBOL_NAME_CACHE[database][name]
         return SymbolMap.from_cache(database, symbol_id)
 
@@ -162,7 +158,7 @@ class SymbolMap(SQLiteCacheRow):
             'SELECT id FROM fields WHERE symbol=? ORDER BY id', (self.row,))
         self.fields = [FieldMap.from_cache(self.database, field[0])
                        for field in c.fetchall()]
-        self._fields_by_name = {field['name']: field for field in self.fields}
+        self.fields_by_name = {field['name']: field for field in self.fields}
 
     def populate_cache(self):
         if self.fields is None:
@@ -182,6 +178,7 @@ class FieldMap(SQLiteCacheRow):
     def __init__(self, database, row):
         super().__init__(database, row)
         self.bit_field = BitFieldMap.from_cache(self.database, self.row)
+        self.byte_offset = self['byte_offset']
         self.is_pointer = self['name'] == '[pointer]'
         field_type = self['type']
         if field_type is None:
@@ -197,6 +194,7 @@ class FieldMap(SQLiteCacheRow):
             self.type = property(cache_replace)
         else:
             self.type = SymbolMap.from_cache(self.database, field_type)
+        self.type_simple = self.type.simple
 
     @classmethod
     def table(cls):

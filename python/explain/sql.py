@@ -46,16 +46,10 @@ class SQLiteCacheRow(SQLiteRow, metaclass=ABCMeta):
 
     @classmethod
     def from_cache(cls, database, row):
-        # print('from cache', cls, row)
         key = (database, cls, row)
         try:
             return SQLiteCacheRow.ROW_CACHE[key]
         except KeyError:
             row = cls(database, row)
             SQLiteCacheRow.ROW_CACHE[key] = row
-            # row.populate_cache()
             return row
-
-    # def populate_cache(self):
-    #     """Populates the cache if it has not already been filled."""
-    #     pass

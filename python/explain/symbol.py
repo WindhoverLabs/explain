@@ -1,19 +1,9 @@
-import struct
+from struct import unpack_from
 from collections import Mapping
 
 from explain.explain_error import ExplainError
 from explain.map import SymbolMap, BitFieldMap
-
-
-def unpack(fmt, buffer, offset, little_endian):
-    """Use the struct module to unpack a single part of a structure.
-
-    This is slightly inefficient because each member of the struct has to be
-    unpacked individually, but it's easier this way due to how Symbols are
-    dynamically defined. There isn't a preset list of Symbols.
-    """
-    b = struct.unpack_from(('<' if little_endian else '>') + fmt, buffer, offset)[0]
-    return b
+from explain.struct_fmt import struct_fmt
 
 
 class Symbol(Mapping):
@@ -29,14 +19,17 @@ class Symbol(Mapping):
         self.offset = offset
         self.symbol_map = symbol_map
         if symbol_map.is_primitive:
-            self.value = unpack(symbol_map.fmt, buffer, offset, little_endian)
+            if symbol_map.fmt is None:
+                symbol_map.fmt = struct_fmt(symbol_map)
+            self.value = unpack_from(('<' if self.little_endian else '>')
+                                     + symbol_map.fmt, buffer, offset)[0]
 
     def __getitem__(self, key):
-        field = self.symbol_map.field(key)
+        field = self.symbol_map.fields_by_name[key]
         bit_field = field.bit_field
-        kind = field.type.simple
-        symbol_offset = self.offset + field['byte_offset']
-        array = kind.array
+        kind = field.type_simple
+        symbol_offset = self.offset + field.byte_offset
+        count, array = kind.array
         if bit_field:
             symbol = BitFieldSymbol(
                 symbol_map=kind,
@@ -50,8 +43,8 @@ class Symbol(Mapping):
                 symbol_map=kind,
                 buffer=self.buffer,
                 offset=symbol_offset,
-                count=array['multiplicity'],
-                unit_symbol=array.type,
+                count=count,
+                unit_symbol=array,
                 little_endian=self.little_endian
             )
         else:
@@ -89,12 +82,14 @@ class Symbol(Mapping):
 class ArraySymbol(Symbol):
     """A representation of an array from a buffer of memory."""
 
+    __slots__ = ('array',)
+
     def __init__(self, symbol_map: SymbolMap, buffer: memoryview,
                  offset: int, count: int, unit_symbol: SymbolMap,
                  little_endian=None):
         super().__init__(symbol_map=symbol_map, buffer=buffer, offset=offset,
                          little_endian=little_endian)
-        unit_byte_size = unit_symbol['byte_size']
+        unit_byte_size = unit_symbol.byte_size
         self.array = [0]*count
         for i in range(count):
             self.array[i] = Symbol(unit_symbol, self.buffer, self.offset + (unit_byte_size * i))
@@ -105,17 +100,23 @@ class ArraySymbol(Symbol):
     def __iter__(self):
         return list.__iter__(self.array)
 
+    def __len__(self):
+        return len(self.array)
+
     def __repr__(self):
         list_str = super(ArraySymbol, self).__repr__()
         return 'ArrayField(values={}, offset={})'.format(list_str, self.offset)
 
     def flatten(self, name=''):
         for n, elem in enumerate(self):
-            yield from elem.flatten('{}[{}]'.format(name, n))
+            yield from elem.flatten(name + '[' + str(n) + ']')
 
 
 class BitFieldSymbol(Symbol):
     """A representation of a bitfield from a buffer of memory."""
+
+    __slots__ = ('bit_field',)
+
     def __init__(self, symbol_map: SymbolMap, bit_field: BitFieldMap,
                  buffer: memoryview, offset: int, little_endian=None):
         super().__init__(symbol_map, buffer, offset, little_endian)

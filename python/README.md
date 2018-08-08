@@ -33,14 +33,14 @@ like bash may expand filename wildcards automatically so it is possible to pass
 `directory/*.so` to capture every shared-object file in a directory.
 
 ## Explain
-`$ explain --database database --out output.json symbol`
+`$ explain --database database --out output.json <symbol>`
 
 Explain creates an abstract view of the memory layout for a single symbol (or 
 every symbol in an ELF if `--file file` and `--all` are provided). The symbol
 layout is saved in a JSON format in the file specified by the `--out` option.
 
 ## Stream Parser
-`$ parse --database database --csv directory input file_struct`
+`$ parse --database database --csv directory <input> <file_struct>`
 
 Stream Parser generates a collection of CSV files representing the decoded
 binary log from input. Stream Parser is expecting a CFE/CCSDS-formatted log
