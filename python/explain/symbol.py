@@ -1,11 +1,8 @@
 import struct
 from collections import Mapping
-from typing import List
 
 from explain.explain_error import ExplainError
-from explain.map import FieldMap
 from explain.map import SymbolMap, BitFieldMap
-from explain.struct_fmt import struct_fmt
 
 
 def unpack(fmt, buffer, offset, little_endian):
@@ -32,8 +29,6 @@ class Symbol(Mapping):
         self.offset = offset
         self.symbol_map = symbol_map
         if symbol_map.is_primitive:
-            if symbol_map.fmt is None:
-                symbol_map.fmt = struct_fmt(symbol_map)
             self.value = unpack(symbol_map.fmt, buffer, offset, little_endian)
 
     def __getitem__(self, key):

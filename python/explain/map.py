@@ -2,15 +2,18 @@
 The Map module contains the helper classes for looking at an ElfReader database.
 """
 import os
+from pprint import pprint
 from typing import Any, Union, Optional
 
+from explain.struct_fmt import struct_fmt
+
 from explain.explain_error import ExplainError
-from explain.sql import SQLiteCacheRow, SQLiteNamedRow
+from explain.sql import SQLiteCacheRow
 
 __all__ = ['ElfMap', 'SymbolMap', 'FieldMap', 'BitFieldMap']
 
 
-class ElfMap(SQLiteNamedRow):
+class ElfMap(SQLiteCacheRow):
     """An ELF file. Can be used to find symbols in the ELF."""
 
     @staticmethod
@@ -46,7 +49,7 @@ class ElfMap(SQLiteNamedRow):
         return 'elfs'
 
 
-class SymbolMap(SQLiteNamedRow):
+class SymbolMap(SQLiteCacheRow):
     """A symbol in an ELF. Symbols can be anything from structures to unions to
     base types.
 
@@ -87,10 +90,11 @@ class SymbolMap(SQLiteNamedRow):
         # not enforced. Do not modify in user code outside of this class.
         self.elf = ElfMap.from_cache(self.database, self['elf'])
         self.little_endian = self.elf['little_endian']
+        self._fmt = None
         # Fields Cache
         self.fields = None
         self._fields_by_name = None
-        self._refresh_cache()
+        self.refresh_field_cache()
         # Other properties.
         self.array = None
         """If not None, this SymbolMap is an array of another SymbolMap. The
@@ -111,15 +115,14 @@ class SymbolMap(SQLiteNamedRow):
         if bool(self.fields):
             field0 = self.fields[0]
             self.array = field0 if field0['multiplicity'] != 0 else None
-            self.is_base_type = field0['name'] == '[pointer]'
-            self.pointer = field0.type if field0['name'] == '[pointer]' else None
+            self.pointer = field0.type if field0.is_pointer else None
+            self.is_base_type = self.pointer is not None
             self.typedef = field0.type if field0['name'] == 'typedef' else None
             self.simple = field0.type.simple if self.typedef else self
 
         self.is_primitive = self.simple.is_base_type
         """True if this SymbolMap directly resolves to a base type through a
         chain of typedefs."""
-        self.fmt = None
 
     def __hash__(self):
         return hash((self.database, self.table(), self.row))
@@ -128,12 +131,11 @@ class SymbolMap(SQLiteNamedRow):
         """Return the field of the Symbol with the given name."""
         return self._fields_by_name[name]
 
-    def _refresh_cache(self):
-        c = self.database.execute(
-            'SELECT id FROM fields WHERE symbol=? ORDER BY id', (self.row,))
-        self.fields = [FieldMap.from_cache(self.database, field[0])
-                       for field in c.fetchall()]
-        self._fields_by_name = {field['name']: field for field in self.fields}
+    @property
+    def fmt(self):
+        if self._fmt is None:
+            self._fmt = struct_fmt(self)
+        return self._fmt
 
     @staticmethod
     def from_name(database, name):
@@ -155,12 +157,23 @@ class SymbolMap(SQLiteNamedRow):
         symbol_id = SymbolMap.SYMBOL_NAME_CACHE[database][name]
         return SymbolMap.from_cache(database, symbol_id)
 
+    def refresh_field_cache(self):
+        c = self.database.execute(
+            'SELECT id FROM fields WHERE symbol=? ORDER BY id', (self.row,))
+        self.fields = [FieldMap.from_cache(self.database, field[0])
+                       for field in c.fetchall()]
+        self._fields_by_name = {field['name']: field for field in self.fields}
+
+    def populate_cache(self):
+        if self.fields is None:
+            self.refresh_field_cache()
+
     @classmethod
     def table(cls):
         return 'symbols'
 
 
-class FieldMap(SQLiteNamedRow):
+class FieldMap(SQLiteCacheRow):
     """A field of a Symbol. See the documentation of SymbolMap for how to
     interpret the prime field of a SymbolMap."""
     bit_field = ...  # type: BitFieldMap
@@ -169,7 +182,21 @@ class FieldMap(SQLiteNamedRow):
     def __init__(self, database, row):
         super().__init__(database, row)
         self.bit_field = BitFieldMap.from_cache(self.database, self.row)
-        self.type = SymbolMap.from_cache(self.database, self['type'])
+        self.is_pointer = self['name'] == '[pointer]'
+        field_type = self['type']
+        if field_type is None:
+            print('field {} is a null pointer.'.format(self.row))
+            self.type = None
+        elif self.is_pointer:
+            # TODO This doesn't actually do what it looks like. Properties
+            # aren't assigned like this. So far it isn't an issue because no one
+            # cares what the pointer type is, but this needs to be fixed.
+            def cache_replace():
+                self.type = SymbolMap.from_cache(self.database, field_type)
+                return self.type
+            self.type = property(cache_replace)
+        else:
+            self.type = SymbolMap.from_cache(self.database, field_type)
 
     @classmethod
     def table(cls):

@@ -17,17 +17,18 @@ class SQLiteRow(SQLiteBacked, dict):
     def __init__(self, database, row):
         """Construct object given the database, table name, and row number."""
         super().__init__(database)
+        # print(type(self), row)
         if not isinstance(row, int):
-            raise TypeError('Row primary key must be int. Got ' + repr(row))
+            raise TypeError('Row must be int. Got ' + repr(row))
         self.row = row
-        self.refresh_cache()
+        self.refresh_row_cache()
 
     def __repr__(self):
         return '{}({})'.format(
             self.__class__.__name__,
             ', '.join('{}={!r}'.format(*c) for c in self.items()))
 
-    def refresh_cache(self):
+    def refresh_row_cache(self):
         c = self.database.execute(
             self._QUERY.format('*', self.table(), self.row))
         result = [(k[0], v) for k, v in zip(c.description, c.fetchone())]
@@ -45,16 +46,16 @@ class SQLiteCacheRow(SQLiteRow, metaclass=ABCMeta):
 
     @classmethod
     def from_cache(cls, database, row):
+        # print('from cache', cls, row)
         key = (database, cls, row)
         try:
             return SQLiteCacheRow.ROW_CACHE[key]
         except KeyError:
             row = cls(database, row)
             SQLiteCacheRow.ROW_CACHE[key] = row
+            # row.populate_cache()
             return row
 
-
-class SQLiteNamedRow(SQLiteCacheRow, metaclass=ABCMeta):
-    def __init__(self, database, row):
-        super().__init__(database, row)
-        self._name_cache = None
+    # def populate_cache(self):
+    #     """Populates the cache if it has not already been filled."""
+    #     pass

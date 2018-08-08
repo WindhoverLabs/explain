@@ -12,6 +12,9 @@ is exposed within Python for future developers to take advantage of.
 1. The user should acquire a copy of the explain source distribution.
 2. Using a virtual environment or the default system configuration and Python 
 3.5+
+   - To create a virtual environment, run `$ virtualenv -p python3.5 venv`
+   - To activate run `$ source venv/bin/activate`
+   - To deactivate run `$ deactivate`
 3. `pip install <distribution>`
 
 
