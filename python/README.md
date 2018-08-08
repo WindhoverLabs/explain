@@ -9,17 +9,20 @@ is exposed within Python for future developers to take advantage of.
 
 
 ## Installing via Pip
-1. The user should acquire a copy of the explain source distribution.
+1. The user should acquire a copy of the explain source distribution, i.e. explain-0.4.tar.gz
 2. Using a virtual environment or the default system configuration and Python 
 3.5+
    - To create a virtual environment, run `$ virtualenv -p python3.5 venv`
    - To activate run `$ source venv/bin/activate`
    - To deactivate run `$ deactivate`
-3. `pip install <distribution>`
+3. Activate the virtual environment with `$source venv/bin/activate`
+4. `pip install <distribution>`
 
 
 ## Elf Reader
-`$ elf_reader database files`
+`$ elf_reader <database> <file(s)>`
+
+For example, `$ elf_reader cdd.sqllite AMC.so HK.so`
 
 The first point of entry is Elf Reader. Elf Reader produces or updates the 
 Sqlite3 database with file name `database` with the DWARF contents from each
@@ -45,5 +48,6 @@ file, and takes in an additional structure name that represents the header
 for the particular log ('DS_FileHeader_t', etc).
 
 ## Building a Distribution
+1. Ensure setuptools is installed (use pip)
 1. From the Explain (Python) root directory:
 2. `python setup.py sdist`
