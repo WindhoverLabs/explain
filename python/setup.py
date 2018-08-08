@@ -18,7 +18,7 @@ setup(
     entry_points={
         'console_scripts': [
             'elf_reader = explain.elf_reader:main',
-            'explain = explain.__main__:main',
+            'explain = explain.__main__',
             'parse = explain.stream_parser:main'
         ]
     }
