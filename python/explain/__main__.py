@@ -2,7 +2,8 @@ import argparse
 import json
 import sqlite3
 
-from explain import SymbolMap, explain_elf
+from explain import explain_elf
+from explain.map import SymbolMap
 from explain.elf_reader import ElfReader
 from explain.map import ElfMap
 
