@@ -27,7 +27,7 @@ class Symbol(Mapping):
     def __getitem__(self, key):
         field = self.symbol_map.fields_by_name[key]
         bit_field = field.bit_field
-        kind = field.type_simple
+        kind = field.type.simple
         symbol_offset = self.offset + field.byte_offset
         count, array = kind.array
         if bit_field:

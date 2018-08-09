@@ -17,11 +17,6 @@ from explain.sql import SQLiteBacked
 from explain.symbol import Symbol
 
 
-class EndOfStream(ExplainError, StopIteration):
-    """Raised when a stream has been exhausted."""
-    pass
-
-
 class UnknownMessageId(ExplainError):
     """Raised when a message ID is encountered that is unknown."""
 
@@ -47,7 +42,7 @@ class StreamCache(RawIOBase):
         read = self.stream.read(to_read)
         len_read = len(read)
         if len_read != to_read:
-            raise EndOfStream
+            raise RuntimeError('Did not read enough bytes.')
         self.cache += read
         self.cache_len += len_read
         return self.cache
@@ -98,7 +93,7 @@ class CcsdsMixin(StreamParser, metaclass=ABCMeta):
             try:
                 stream_id, length = ccsds['StreamId'], ccsds['Length']
             except struct.error:
-                raise EndOfStream
+                return
             app_id = (stream_id[0].value << 8) + stream_id[1].value
             length = (length[0].value << 8) + length[1].value + 7
             try:
@@ -168,7 +163,7 @@ def main():
             # if not n % 1000:
             #     print('{:6d}, {:.2f}'.format(n, time() - start_time))
             #     if n >= 30000:
-            #         raise StopIteration
+            #         return
             yield p
 
     try:
