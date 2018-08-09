@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name='explain',
-    version='0.4',
+    version='0.4.1',
     author='Windhover Labs',
     author_email='evanderwerf@windhoverlabs.com',
     description='Generate structure mapping files for parsing Airliner logs.',
@@ -18,7 +18,7 @@ setup(
     entry_points={
         'console_scripts': [
             'elf_reader = explain.elf_reader:main',
-            'explain = explain.__main__:main',
+            'explain = explain.__main__',
             'parse = explain.stream_parser:main'
         ]
     }
