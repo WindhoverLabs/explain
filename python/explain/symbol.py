@@ -78,6 +78,10 @@ class Symbol(Mapping):
             for field_name, symbol in self.items():
                 yield from symbol.flatten(name_dot + field_name)
 
+    @property
+    def name(self):
+        return self.symbol_map['name']
+
 
 class ArraySymbol(Symbol):
     """A representation of an array from a buffer of memory."""

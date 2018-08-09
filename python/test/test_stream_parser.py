@@ -17,5 +17,11 @@ class TestStreamParser(RequiresDatabase):
         with open(TEST_FILE, 'rb') as fp:
             parser = stream_parser.AirlinerStreamParser(
                 self.db, fp, 'DS_FileHeader_t')
-            for symbol in parser.parse():
-                print(symbol)
+            symbols = list(parser.parse())
+            self.assertEqual(len(symbols), 17)
+            distance_sensor_msg = list(filter(
+                lambda s: s.name == 'PX4_DistanceSensorMsg_t', symbols))
+            vehicle_status_msg = list(filter(
+                lambda s: s.name == 'PX4_VehicleStatusMsg_t', symbols))
+            self.assertEqual(len(distance_sensor_msg), 16)
+            self.assertEqual(len(vehicle_status_msg), 1)

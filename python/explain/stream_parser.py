@@ -27,6 +27,8 @@ class StreamCache(RawIOBase):
     Reads from the StreamCache are always performed from the start of the
     current cache, thus multiple reads of the same amount will return the same
     data as long as the cache has not been cleared.
+
+    Currently unused. Feel free to delete.
     """
     def __init__(self, stream):
         self.stream = stream
@@ -49,16 +51,23 @@ class StreamCache(RawIOBase):
 
 
 class StreamParser(SQLiteBacked, metaclass=ABCMeta):
+    """Takes an IO stream (could be file or network) as input, and produces a
+    stream of Symbols that are parsed from the input."""
     def __init__(self, database, stream):
         super(StreamParser, self).__init__(database)
+        # TODO Add support for network streams (or any stream where not all of
+        # it is available at once.
         self.stream = stream.read()
 
     @property
     @abstractmethod
     def data_offset(self):
-        raise NotImplementedError
+        """Return the offset in bytes that the Symbol data starts in the
+        stream."""
+        return 0
 
     def read_symbol(self, symbol_map: SymbolMap, offset, little_endian=None):
+        """Small helper method for reading a Symbol."""
         return Symbol(symbol_map, self.stream, offset, little_endian)
 
     @abstractmethod
@@ -68,6 +77,8 @@ class StreamParser(SQLiteBacked, metaclass=ABCMeta):
         raise NotImplementedError
 
     def parse(self):
+        """Loop over the generated output from structures and yield each
+        Symbol in the stream at that offset."""
         for name, offset in self.structures(offset=self.data_offset):
             yield self.read_symbol(
                 symbol_map=SymbolMap.from_name(self.database, name),
@@ -75,6 +86,14 @@ class StreamParser(SQLiteBacked, metaclass=ABCMeta):
 
 
 class CcsdsMixin(StreamParser, metaclass=ABCMeta):
+    """Mix this class in if the stream being parsed is a CCSDS stream.
+
+    This class assumes that there is a CCSDS header at the start of every
+    record, and each record structure begins at the same offset as the CCSDS
+    header.
+
+    This class uses ./ccsds_map.json to match StreamIds to structure names.
+    """
     ccsds_map = ...  # type: SymbolMap
     msg_map = ...  # type: Dict[int, str]
 
@@ -88,6 +107,9 @@ class CcsdsMixin(StreamParser, metaclass=ABCMeta):
     def structures(self, offset=0):
         length = 0
         while True:
+            # Potential optimization: Eliminate read_symbol call and use the
+            # struct module to simply parse out the StreamId and Length from the
+            # raw bytes.
             offset += length
             ccsds = self.read_symbol(self.ccsds_map, offset=offset)
             try:
@@ -103,6 +125,8 @@ class CcsdsMixin(StreamParser, metaclass=ABCMeta):
 
 
 class CfeStreamParser(StreamParser, metaclass=ABCMeta):
+    """Assumes that the stream is a CFE stream, and looks for a CFE_FS_Header_t
+    at the beginning of the stream."""
     def __init__(self, database, stream):
         super().__init__(database, stream)
         self.cfe_map = SymbolMap.from_name(self.database, 'CFE_FS_Header_t')
@@ -115,12 +139,14 @@ class CfeStreamParser(StreamParser, metaclass=ABCMeta):
 
 
 class AirlinerStreamParser(CfeStreamParser, CcsdsMixin):
+    """Assumes that the stream is for an Airliner log, and assumes that there is
+    a XX_FileHeader_t after the CFE header, where XX is the name of the App that
+    created the log."""
     def __init__(self, database, stream, header_struct_name):
         super().__init__(database, stream)
         self.header_map = SymbolMap.from_name(self.database, header_struct_name)
-        # self.header = self.read_symbol(
-        #     self.header_map, offset=self.cfe_map['byte_size']
-        # )
+        self.header = self.read_symbol(
+            self.header_map, offset=self.cfe_map['byte_size'])
 
     @property
     def data_offset(self):
