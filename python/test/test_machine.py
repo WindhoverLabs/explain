@@ -25,5 +25,6 @@ class TestMachine(TestCase):
 
     def test_machine(self):
         machine = SymbolMap.from_name(self.db, 'MACHINE')
-        self.assertIsNotNone(machine, 'MACHINE must be a SymbolMap.')
-        pprint(explain_symbol(machine))
+        self.assertIsInstance(
+            machine, SymbolMap, 'MACHINE must be a SymbolMap.')
+        # pprint(explain_symbol(machine))

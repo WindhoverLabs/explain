@@ -124,7 +124,7 @@ class SymbolMap(SQLiteCacheRow):
             self.array = count, (field0_type if count != 0 else None)
             self.pointer = field0_type if field0.is_pointer else None
             self.is_base_type = self.pointer is not None
-            self.typedef = field0_type if field0['name'] == 'typedef' else None
+            self.typedef = field0_type if field0.is_typedef else None
             self.simple = field0_type.simple if self.typedef else self
 
         self.is_primitive = self.simple.is_base_type
@@ -173,28 +173,34 @@ class FieldMap(SQLiteCacheRow):
     """A field of a Symbol. See the documentation of SymbolMap for how to
     interpret the prime field of a SymbolMap."""
     bit_field = ...  # type: BitFieldMap
-    type = ...  # type: SymbolMap
+    type = ...  # type:  Optional[SymbolMap]
 
     def __init__(self, database, row):
         super().__init__(database, row)
         self.bit_field = BitFieldMap.from_cache(self.database, self.row)
         self.byte_offset = self['byte_offset']
         self.is_pointer = self['name'] == '[pointer]'
+        self.is_typedef = self['name'] == 'typedef'
+        self.type = None
         field_type = self['type']
         if field_type is None:
             print('field {} is a null pointer.'.format(self.row))
             self.type = None
         elif self.is_pointer:
-            # TODO This doesn't actually do what it looks like. Properties
-            # aren't assigned like this. So far it isn't an issue because no one
-            # cares what the pointer type is, but this needs to be fixed.
-            def cache_replace():
-                self.type = SymbolMap.from_cache(self.database, field_type)
-                return self.type
-            self.type = property(cache_replace)
+            self.type = None
         else:
             self.type = SymbolMap.from_cache(self.database, field_type)
-        self.type_simple = self.type.simple
+        # self.type_simple = self.type.simple
+
+    @property
+    def pointer_type(self):
+        if not self.is_pointer:
+            raise ExplainError('This field is not a pointer.')
+        return SymbolMap.from_cache(self.database, self['type'])
+
+    @property
+    def symbol(self):
+        return SymbolMap.from_cache(self.database, self['symbol'])
 
     @classmethod
     def table(cls):

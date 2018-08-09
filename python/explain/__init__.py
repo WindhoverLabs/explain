@@ -14,18 +14,23 @@ def explain_field(f: FieldMap):
     # fd['type'] = f.type['name']
     bit_field = f.bit_field
     fd['bit_offset'] = f['byte_offset'] * 8
-    if not bit_field:
+    kind = f.type
+    if f.is_pointer:
+        fd['name'] = f.symbol['name']
+        fd['bit_size'] = f.symbol['byte_size'] * 8
+        fd['base_type'] = '*'
+        return fd
+    elif not bit_field:
         fd['bit_size'] = f.type['byte_size'] * 8
     else:
         fd['bit_offset'] += bit_field['bit_offset']
         fd['bit_size'] = bit_field['bit_size']
-    kind = f.type
-    array = kind.array
+    count, array_type = kind.array
     simple = kind.simple
-    if array is not None:
+    if array_type:
         fd['array'] = True
-        fd['count'] = array['multiplicity']
-        fd['kind'] = explain_symbol(array.type.simple)
+        fd['count'] = count
+        fd['type'] = explain_symbol(array_type.simple)
     elif not simple.is_base_type:
         fd['fields'] = [explain_field(f) for f in simple.fields]
     else:
@@ -50,6 +55,8 @@ def explain_symbol(symbol: SymbolMap):
     if not symbol.pointer and not symbol.is_primitive:
         sd['fields'] = None if symbol.is_base_type else \
             [explain_field(f) for f in symbol.fields]
+    else:
+        sd['base_type'] = symbol['name']
     return sd
 
 
