@@ -37,3 +37,12 @@ def sql_print(result, header_every=20):
             format_row(header, header=True)
         format_row(row)
         i += 1
+
+def get_all_elfs(database):
+    """Find all ELF names in database return them."""
+    elf_names = database.execute('SELECT name FROM elfs')
+
+    if elf_names is None:
+        raise ExplainError('No ELFs imported into database')
+
+    return [name[0] for name in elf_names.fetchall()]
