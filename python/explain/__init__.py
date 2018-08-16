@@ -41,6 +41,7 @@ def explain_field(f: FieldMap):
             del fd['type']["fields"]
     elif not simple.is_base_type:
         fd['fields'] = [explain_field(f) for f in simple.fields]
+        fd['real_type'] = f.type['name']
     else:
         fd['base_type'] = simple['name']
         fd['real_type'] = f.type['name']
@@ -64,6 +65,7 @@ def explain_symbol(symbol: SymbolMap):
     if not symbol.pointer and not symbol.is_primitive:
         sd['fields'] = None if symbol.is_base_type else \
             [explain_field(f) for f in symbol.fields]
+        sd['real_type'] = symbol['name']
     else:
         sd['base_type'] = symbol['name']
     return sd
