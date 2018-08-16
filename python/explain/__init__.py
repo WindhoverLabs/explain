@@ -31,7 +31,14 @@ def explain_field(f: FieldMap):
         fd['array'] = True
         fd['count'] = count
         fd['type'] = explain_symbol(array_type.simple)
-        fd['real_type'] = f.type['name'].split('_')[1]
+        realtype = f.type['name'].split('_')
+        del realtype[0]
+        del realtype[-1]
+        realtype = '_'.join(realtype)
+        fd['real_type'] = realtype
+        if "fields" in fd['type']:
+            fd['fields'] = fd['type']["fields"]
+            del fd['type']["fields"]
     elif not simple.is_base_type:
         fd['fields'] = [explain_field(f) for f in simple.fields]
     else:
