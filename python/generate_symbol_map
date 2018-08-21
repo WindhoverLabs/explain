@@ -6,16 +6,9 @@ INPUT_FILE_NAME=$2
 DATABASE_NAME=$3
 OUTPUT_FILE=$4
 VENV_DIR=$5
-mkdir -p $VENV_DIR
+
 cd $VENV_DIR
-rm -Rf venv
-virtualenv -p python3.5 venv
 source venv/bin/activate
-cd ${EXPLAIN_DIR}
-python setup.py sdist
-pip install --no-binary :all: dist/explain-1.0.tar.gz
-rm -Rf dist
-cd $VENV_DIR
 rm -Rf $DATABASE_NAME
 elf_reader $DATABASE_NAME $INPUT_FILE_PATH/$INPUT_FILE_NAME
 explain --file $INPUT_FILE_NAME --database $DATABASE_NAME --out $OUTPUT_FILE -a
