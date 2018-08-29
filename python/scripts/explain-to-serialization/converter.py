@@ -224,7 +224,41 @@ def fix_required(symbol):
         return req_pb
 
     return fix(symbol, OrderedDict())
-                
+
+def setup_ops_names(sym):
+    """ Iterate over all fields in a symbol with a depth first search
+    to setup the operational names and field path of each accessible field """
+    
+    if "fields" not in sym:
+        return {}
+
+    global ops_names
+    ops_names = {}
+    
+    def search(sym, parent):
+        global ops_names
+        # Iterate over all fields in this symbol
+        for field in sym["fields"]:
+            # Set parent name appropriately
+            name = field["name"]
+            field_path = parent + "." + name if parent else name
+            
+            # Check if this field is another symbol
+            if "fields" in field:
+                # Recur into lowest level of nested fields and fix bottom up
+                field = search(field, field_path)
+                # If this field is a symbol we don't want it to be an ops name
+                continue
+
+            # Set new dict key equal to this field
+            ops_names[field_path] = {"field_path": field_path}
+
+    search(sym, None)
+    
+    #print ops_names
+    
+    return ops_names
+
 def is_enum(sym):
     """ Check if the passed symbol is an enumeration so its protobuf type can 
     be set appropriately. """
@@ -266,6 +300,9 @@ for symbol, data in explain["symbols"].iteritems():
     if app_name not in apps:
         continue
 
+    # Do ops name parsing first. Fix fields modifys data format    
+    operational_names = setup_ops_names(data)
+
     # Fix fields so key is message name
     serial_input["Airliner"]["apps"][app_name]["proto_msgs"][symbol] = fix_fields(data)
     
@@ -284,7 +321,7 @@ for symbol, data in explain["symbols"].iteritems():
     serial_input["Airliner"]["apps"][app_name]["proto_msgs"][symbol]["required_pb_msgs"] = fix_required(data)
 
     # Add expected fields for pyliner - TODO: These need to be manually populated right now
-    serial_input["Airliner"]["apps"][app_name]["proto_msgs"][symbol]["operational_names"] = {}
+    serial_input["Airliner"]["apps"][app_name]["proto_msgs"][symbol]["operational_names"] = operational_names
     serial_input["Airliner"]["apps"][app_name]["operations"][symbol] = {}
     serial_input["Airliner"]["apps"][app_name]["operations"][symbol]["airliner_msg"] = symbol
     serial_input["Airliner"]["apps"][app_name]["operations"][symbol]["airliner_cc"] = -1
