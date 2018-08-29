@@ -337,6 +337,8 @@ class ElfView(Loggable):
             'DW_TAG_subroutine_type': self._tag_skip,
             'DW_TAG_unspecified_type': self._tag_skip,
             'DW_TAG_variable': self._tag_skip,
+            'DW_TAG_volatile_type': self._tag_skip,
+            'DW_TAG_dwarf_procedure': self._tag_skip
         }
         try:
             callback = known_tags[symbol.tag]
