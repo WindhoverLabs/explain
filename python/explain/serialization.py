@@ -1,20 +1,11 @@
-"""
-This script ingests the json generated from explain with the --everything argument and converts it
-to the format expected by the serialziation autogenerator.
-
-Setup: 
-Place generated json in this directory named: symbols.json
-
-Usage:
-python converter.py
-
-The generated cookiecutter.json file is ready for the autogenerator.
+""" 
+The following are utility functions for taking the explain generated symbols 
+JSON and converting it ot the format expected by the serialization autogenerator
 """
 
 from collections import OrderedDict
-import sys
 import json
-
+from os.path import join
 
 def setup_serialization_dict(apps):
     """ Generate the base dictionary that will be populated by this 
@@ -54,27 +45,27 @@ def get_pb_type(sym):
         "float":   "float",
         "double":   "double",
     }
-    global explain
+    global explain_dict
     
     if sym["real_type"] in type_map:
         return type_map[sym["real_type"]]
     if is_enum(sym["real_type"]):
         return "uint32"
-    if sym["real_type"] in explain["symbols"]:
-        if "real_type" in explain["symbols"][sym["real_type"]] and explain["symbols"][sym["real_type"]]["real_type"] in type_map:
-            #print explain["symbols"][sym["real_type"]]["real_type"]
-            return type_map[explain["symbols"][sym["real_type"]]["real_type"]]
-        if "fields" in explain["symbols"][sym["real_type"]]:
-            if len(explain["symbols"][sym["real_type"]]["fields"]) == 1:
+    if sym["real_type"] in explain_dict["symbols"]:
+        if "real_type" in explain_dict["symbols"][sym["real_type"]] and explain_dict["symbols"][sym["real_type"]]["real_type"] in type_map:
+            #print explain_dict["symbols"][sym["real_type"]]["real_type"]
+            return type_map[explain_dict["symbols"][sym["real_type"]]["real_type"]]
+        if "fields" in explain_dict["symbols"][sym["real_type"]]:
+            if len(explain_dict["symbols"][sym["real_type"]]["fields"]) == 1:
                 try:
-                    if "real_type" in explain["symbols"][sym["real_type"]]["fields"][0]:
-                        if "*" in explain["symbols"][sym["real_type"]]["fields"][0]["real_type"]:
+                    if "real_type" in explain_dict["symbols"][sym["real_type"]]["fields"][0]:
+                        if "*" in explain_dict["symbols"][sym["real_type"]]["fields"][0]["real_type"]:
                             return "uint32"
                 except KeyError as e:
-                    key = next(iter(explain["symbols"][sym["real_type"]]["fields"]))
-                    if "airliner_type" in explain["symbols"][sym["real_type"]]["fields"][key]:
+                    key = next(iter(explain_dict["symbols"][sym["real_type"]]["fields"]))
+                    if "airliner_type" in explain_dict["symbols"][sym["real_type"]]["fields"][key]:
                         # Found previously fixed type
-                        return explain["symbols"][sym["real_type"]]["fields"][key]["airliner_type"]
+                        return explain_dict["symbols"][sym["real_type"]]["fields"][key]["airliner_type"]
                     return "NULL" 
     if "base_type" in sym:
         base = sym["base_type"].split(' ')[-1]
@@ -165,7 +156,7 @@ def fix_required(symbol):
             return req_pb
 
         # Iterate over all fields in this symbol
-        for field, data in sym["fields"].iteritems():
+        for field, data in sym["fields"].items():
             # Don't do anything to or recur into fields which are not other symbols
             if "fields" not in data:
                 continue
@@ -175,7 +166,6 @@ def fix_required(symbol):
                 sym_type = data["airliner_type"]
                 pb_type = data["pb_type"]
             else:
-                print "Warning: " + str(sym) + " does not contain type information."
                 continue
             
             # Check if this is a pointer
@@ -264,9 +254,9 @@ def is_enum(sym):
     be set appropriately. """
     
     # TODO this should probably be smarter
-    global explain
-    if explain and sym in explain["symbols"]:
-        if explain["symbols"][sym]["bit_size"] == 32 and "fields" not in explain["symbols"][sym]:
+    global explain_dict
+    if explain_dict and sym in explain_dict["symbols"]:
+        if explain_dict["symbols"][sym]["bit_size"] == 32 and "fields" not in explain_dict["symbols"][sym]:
             return True
     return False
 
@@ -277,59 +267,64 @@ def valid_symbol(sym, data):
     elif "_pb" in sym:
         return False
 
-    return True        
-                
-explain = {}
-with open("symbols.json", "r") as explain_json:
-    explain = json.load(explain_json)
+    return True
 
-# Parse app names
-apps = [app.split('.')[0] for app in explain["files"]]
-apps.append("PX4")
-apps.append("CFE")
-serial_input = setup_serialization_dict(apps)
+def convert(explain, out_dir):
+    """ Given an explain symbol json, perform all conversion operations for the
+    serialization autogenerator """
+    global explain_dict
+    explain_dict = explain
+    # Parse app names
+    apps = [app.split('.')[0] for app in explain_dict["files"]]
+    apps.append("PX4")
+    apps.append("CFE")
+    serial_input = setup_serialization_dict(apps)
 
-# Reformat data into expected form
-for symbol, data in explain["symbols"].iteritems():
-    # Skip empty struct definitions - we don't care about those here
-    if not valid_symbol(symbol, data):
-        continue
-    
-    # Lookup app name for this message so it can be placed correctly. TODO find a better way - this could drop messages
-    app_name = symbol.split("_")[0]
-    if app_name not in apps:
-        continue
+    # Reformat data into expected form
+    for symbol, data in explain_dict["symbols"].items():
+        # Skip empty struct definitions - we don't care about those here
+        if not valid_symbol(symbol, data):
+            continue
+        
+        # Lookup app name for this message so it can be placed correctly. TODO find a better way - this could drop messages
+        app_name = symbol.split("_")[0]
+        if app_name not in apps:
+            continue
 
-    # Do ops name parsing first. Fix fields modifys data format    
-    operational_names = setup_ops_names(data)
+        # Do ops name parsing first. Fix fields modifys data format    
+        operational_names = setup_ops_names(data)
 
-    # Fix fields so key is message name
-    serial_input["Airliner"]["apps"][app_name]["proto_msgs"][symbol] = fix_fields(data)
-    
-    # Remove unused keys
-    if "type" in serial_input["Airliner"]["apps"][app_name]["proto_msgs"][symbol]:
-        del serial_input["Airliner"]["apps"][app_name]["proto_msgs"][symbol]["type"]
-    if "base_type" in serial_input["Airliner"]["apps"][app_name]["proto_msgs"][symbol]:
-        del serial_input["Airliner"]["apps"][app_name]["proto_msgs"][symbol]["base_type"]
-    if "real_type" in serial_input["Airliner"]["apps"][app_name]["proto_msgs"][symbol]:
-        del serial_input["Airliner"]["apps"][app_name]["proto_msgs"][symbol]["real_type"]
+        # Fix fields so key is message name
+        serial_input["Airliner"]["apps"][app_name]["proto_msgs"][symbol] = fix_fields(data)
+        
+        # Remove unused keys
+        if "type" in serial_input["Airliner"]["apps"][app_name]["proto_msgs"][symbol]:
+            del serial_input["Airliner"]["apps"][app_name]["proto_msgs"][symbol]["type"]
+        if "base_type" in serial_input["Airliner"]["apps"][app_name]["proto_msgs"][symbol]:
+            del serial_input["Airliner"]["apps"][app_name]["proto_msgs"][symbol]["base_type"]
+        if "real_type" in serial_input["Airliner"]["apps"][app_name]["proto_msgs"][symbol]:
+            del serial_input["Airliner"]["apps"][app_name]["proto_msgs"][symbol]["real_type"]
 
-    # Set name of protobuf message correctly
-    serial_input["Airliner"]["apps"][app_name]["proto_msgs"][symbol]["proto_msg"] = get_pb_name(symbol)
-    
-    # Set required protobuf messages field according to expected format
-    serial_input["Airliner"]["apps"][app_name]["proto_msgs"][symbol]["required_pb_msgs"] = fix_required(data)
+        # Set name of protobuf message correctly
+        serial_input["Airliner"]["apps"][app_name]["proto_msgs"][symbol]["proto_msg"] = get_pb_name(symbol)
+        
+        # Set required protobuf messages field according to expected format
+        serial_input["Airliner"]["apps"][app_name]["proto_msgs"][symbol]["required_pb_msgs"] = fix_required(data)
 
-    # Add expected fields for pyliner - TODO: These need to be manually populated right now
-    serial_input["Airliner"]["apps"][app_name]["proto_msgs"][symbol]["operational_names"] = operational_names
-    serial_input["Airliner"]["apps"][app_name]["operations"][symbol] = {}
-    serial_input["Airliner"]["apps"][app_name]["operations"][symbol]["airliner_msg"] = symbol
-    serial_input["Airliner"]["apps"][app_name]["operations"][symbol]["airliner_cc"] = -1
-    serial_input["Airliner"]["apps"][app_name]["operations"][symbol]["airliner_mid"] = ""
-       
-with open("cookiecutter.json", "w") as cc:
-    output = serial_input#OrderedDict(sorted(serial_input.items(), key = lambda x: serial_input['Airliner']['apps'][x]))
-    json.dump(output, cc, indent=4)
+        # Add expected fields for pyliner - TODO: These need to be manually populated right now
+        serial_input["Airliner"]["apps"][app_name]["proto_msgs"][symbol]["operational_names"] = operational_names
+        serial_input["Airliner"]["apps"][app_name]["operations"][symbol] = {}
+        serial_input["Airliner"]["apps"][app_name]["operations"][symbol]["airliner_msg"] = symbol
+        serial_input["Airliner"]["apps"][app_name]["operations"][symbol]["airliner_cc"] = -1
+        serial_input["Airliner"]["apps"][app_name]["operations"][symbol]["airliner_mid"] = ""
+           
+    with open(join(out_dir, "cookiecutter.json"), "w") as cc:
+        output = serial_input#OrderedDict(sorted(serial_input.items(), key = lambda x: serial_input['Airliner']['apps'][x]))
+        json.dump(output, cc, indent=4)
 
 
 
+
+
+
+   

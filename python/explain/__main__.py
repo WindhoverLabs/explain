@@ -1,6 +1,7 @@
 import argparse
 from collections import OrderedDict
 import json
+from os.path import abspath, dirname
 import sqlite3
 
 from explain import explain_elf, explain_symbol
@@ -8,6 +9,7 @@ from explain.map import SymbolMap
 from explain.elf_reader import ElfReader
 from explain.map import ElfMap
 from explain.util import get_all_elfs
+from explain.serialization import convert
 
 
 parser = argparse.ArgumentParser(
@@ -23,6 +25,8 @@ parser.add_argument('--out', help='output json file')
 parser.add_argument('--print', help='print selected symbol(s)')
 parser.add_argument('--reentrant', action='store_true',
                     help='ignore any duplicate ELFs')
+parser.add_argument('--cookiecutter', action='store_true',
+                    help='generate serialization cookiecutter json')
 symbol = parser.add_mutually_exclusive_group(required=True)
 symbol.add_argument('-a', '--all', action='store_true',
                     help='output all symbols')
@@ -65,6 +69,10 @@ if args.everything:
     out['symbols'] = sorted_symbols
     with open(args.out, 'w') as fp:
         json.dump(out, fp, indent='    ')
+        
+    if args.cookiecutter:
+        cookie_json = convert(out, dirname(abspath(args.out)))
+        
 else:
     if args.file:
         elf = ElfMap.from_name(db, args.file)
