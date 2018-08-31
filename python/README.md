@@ -39,6 +39,10 @@ Explain creates an abstract view of the memory layout for a single symbol (or
 every symbol in an ELF if `--file file` and `--all` are provided). The symbol
 layout is saved in a JSON format in the file specified by the `--out` option.
 
+Explain can create the cookiecutter.json file used by the serialization autogenerator
+by using the '--everything/-e' and '--cookiecutter' args like the follwing:
+`$ explain --database explain/cdd.sqllite --out symbols.json -e --cookiecutter`
+
 ## Stream Parser
 `$ parse --database database --csv directory <input> <file_struct>`
 
@@ -51,3 +55,8 @@ for the particular log ('DS_FileHeader_t', etc).
 1. Ensure setuptools is installed (use pip)
 1. From the Explain (Python) root directory:
 2. `python setup.py sdist`
+
+## Executing as a Module
+1. Ensure dependencies are installed (use pip)
+1. From the explain/python directory:
+2. `python3 -m explain --database explain/cdd.sqllite --out symbols.json -e --cookiecutter`
