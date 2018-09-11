@@ -30,6 +30,7 @@ import os
 import sqlite3
 import sys
 from logging import Logger
+import traceback
 
 from elftools.elf.elffile import ELFFile
 
@@ -368,7 +369,12 @@ class ElfView(Loggable):
         multiplicity = None
         for child in die.iter_children():
             if child.tag == 'DW_TAG_subrange_type':
-                upper_bound = child.attributes['DW_AT_upper_bound'].value
+                try:
+                    upper_bound = child.attributes['DW_AT_upper_bound'].value
+                except KeyError:
+                    self.warning('Skipping array with no multiplicity at DIE '
+                         '0x{:x}'.format(die_offset))
+                    return None
                 if not isinstance(upper_bound, int):
                     self.warning(
                         'Array with unknown length declared at DIE 0x{:x}'
@@ -397,6 +403,10 @@ class ElfView(Loggable):
             'SELECT name, byte_size FROM symbols WHERE id=?',
             (array_type_id,)).fetchone()
         multiplicity = self._tag_array_type_multiplicity(die, die_offset)
+        if multiplicity is None:
+            self.warning('Skipping array of unknown length at DIE 0x{:x}'
+                         .format(die_offset))
+            return None
         array_name = 'array_{}_{}'.format(array_type_name, multiplicity)
         symbol_size = unit_byte_size * multiplicity
         symbol_id = self.symbol(array_name)
@@ -665,7 +675,7 @@ def main():
             if args.cont:
                 logger.exception('Problem adding ELF:')
             else:
-                print(e)
+                traceback.print_exc()
                 loaded = False
                 break
     if not loaded:
