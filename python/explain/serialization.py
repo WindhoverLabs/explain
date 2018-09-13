@@ -4,6 +4,7 @@ JSON and converting it ot the format expected by the serialization autogenerator
 """
 
 from collections import OrderedDict
+from copy import deepcopy
 import json
 from os.path import join
 
@@ -132,9 +133,13 @@ def fix_fields(sym):
         # Set array length
         if "array" in fields[name]:
             fields[name]["array_length"] = fields[name]["count"]
-            fields[name]["pb_field_rule"] = "repeated"
             del fields[name]["count"]
             del fields[name]["array"]
+            # Don't set a string with fixed length to an array type
+            if fields[name]["pb_type"] == "string":
+                fields[name]["pb_field_rule"] = "required"
+            else:
+                fields[name]["pb_field_rule"] = "repeated"
         else:
             fields[name]["array_length"] = 0
             fields[name]["pb_field_rule"] = "required"
@@ -322,8 +327,42 @@ def convert(explain, out_dir):
         output = serial_input#OrderedDict(sorted(serial_input.items(), key = lambda x: serial_input['Airliner']['apps'][x]))
         json.dump(output, cc, indent=4)
 
+    # Generate a copy of the cookiecutter but only with field ops names
+    with open(join(out_dir, "pyliner_ops_names.json"), "w") as cc:
+        delete_apps = []
+        output = deepcopy(serial_input)
+        for app, app_data in output["Airliner"]["apps"].items():
+            del app_data["app_name"]
+            del app_data["operations"]
+            if app_data["proto_msgs"] == {}:
+                delete_apps.append(app)
+                continue
+            for symbol, sym_data in app_data["proto_msgs"].items():
+                del sym_data["bit_size"]
+                del sym_data["fields"]
+                del sym_data["proto_msg"]
+                del sym_data["required_pb_msgs"]
+                
+        for app in delete_apps:
+            del output["Airliner"]["apps"][app]
 
+        json.dump(output, cc, indent=4)
 
+    # Generate a copy of the cookiecutter but only with app operations
+    with open(join(out_dir, "pyliner_msgs.json"), "w") as cc:
+        delete_apps = []
+        output = deepcopy(serial_input)
+        for app, app_data in output["Airliner"]["apps"].items():
+            del app_data["app_name"]
+            del app_data["app_ops_name"]
+            if app_data["proto_msgs"] == {}:
+                delete_apps.append(app)
+                continue
+            del app_data["proto_msgs"]
+
+        for app in delete_apps:
+            del output["Airliner"]["apps"][app]
+        json.dump(output, cc, indent=4)
 
 
 
