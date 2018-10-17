@@ -4,7 +4,7 @@ function(explain_generate_symbol_map)
     cmake_parse_arguments(PARSED_ARGS "" "INPUT_PATH;INPUT_FILE;DATABASE_NAME;OUTPUT_FILE" "" ${ARGN})
     
     add_custom_target(${TARGET_NAME}_DB
-        DEPENDS EXPLAIN_INSTALL ground_tools
+        DEPENDS EXPLAIN_INSTALL
         COMMAND ${PROJECT_SOURCE_DIR}/tools/explain/python/generate_symbol_map 
             ${PARSED_ARGS_INPUT_PATH} 
             ${PARSED_ARGS_INPUT_FILE} 
@@ -13,9 +13,7 @@ function(explain_generate_symbol_map)
             ${PROJECT_BINARY_DIR}/host
     )
     add_dependencies(${TARGET_NAME}_DB ${TARGET_NAME})
-    if(TARGET ground_tools)
-        add_dependencies(ground_tools ${TARGET_NAME}_DB)
-    endif(TARGET ground_tools)
+    add_dependencies(ground_tools ${TARGET_NAME}_DB)
 endfunction(explain_generate_symbol_map)
 
 function(explain_read_elf)
@@ -31,9 +29,7 @@ function(explain_read_elf)
             ${PROJECT_BINARY_DIR}/host
     )
     add_dependencies(${TARGET_NAME}_DB ${TARGET_NAME})
-    if(TARGET ground_tools)
-        add_dependencies(ground_tools ${TARGET_NAME}_DB)
-    endif(TARGET ground_tools)
+    add_dependencies(ground_tools ${TARGET_NAME}_DB)
     add_dependencies(explain_parsing ${TARGET_NAME}_DB)
     add_dependencies(explain_cookie ${TARGET_NAME}_DB)
     
@@ -50,9 +46,7 @@ function(explain_generate_cookie)
             ${PARSED_ARGS_OUTPUT_FILE} 
             ${PROJECT_BINARY_DIR}/host
     )
-    if(TARGET ground_tools)
-        add_dependencies(ground_tools explain_cookie)
-    endif(TARGET ground_tools)
+    add_dependencies(ground_tools explain_cookie)
 endfunction(explain_generate_cookie)
 
 function(explain_setup)
@@ -60,7 +54,5 @@ function(explain_setup)
         COMMAND ${PROJECT_SOURCE_DIR}/tools/explain/python/setup_explain 
             ${PROJECT_BINARY_DIR}/host
     )
-    if(TARGET ground_tools)
-        add_dependencies(ground_tools EXPLAIN_INSTALL)
-    endif(TARGET ground_tools)
+    add_dependencies(ground_tools EXPLAIN_INSTALL)
 endfunction(explain_setup)
