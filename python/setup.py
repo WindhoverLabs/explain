@@ -10,7 +10,6 @@ setup(
     license='3BSD-3-Clause',
     packages=find_packages(),
     install_requires=[
-        'pyelftools'
     ],
     package_data={
         'explain': ['ccsds_map.json']

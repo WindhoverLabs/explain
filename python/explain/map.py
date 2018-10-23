@@ -75,7 +75,10 @@ class ElfMap(SQLiteCacheRow):
         symbols = self.database.execute(
             'SELECT id FROM symbols WHERE elf=? AND name NOT LIKE "\\_%" ESCAPE "\\"', (self.row,)).fetchall()
         for symbol in symbols:
-            yield SymbolMap.from_cache(self.database, symbol[0])
+            try:
+                yield SymbolMap.from_cache(self.database, symbol[0])
+            except RecursionError as e:
+                print('WARNING: Caught RecursionError creating map for symbol id {}'.format(symbol[0]))
 
     @classmethod
     def table(cls):

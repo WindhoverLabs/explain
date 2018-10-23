@@ -317,6 +317,7 @@ def convert(explain, out_dir):
     apps.append("PX4")
     apps.append("CFE")
     serial_input = setup_serialization_dict(apps)
+    serial_input["Airliner"]["little_endian"] = explain["little_endian"]
 
     # Reformat data into expected form
     for symbol, data in explain_dict["symbols"].items():
