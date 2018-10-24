@@ -47,7 +47,7 @@ function(explain_generate_cookie)
         	${PROJECT_BINARY_DIR}/host
     )
     add_dependencies(ground_tools explain_cookie)
-endfunction(explain_generate_symbol_cookie)
+endfunction(explain_generate_cookie)
 
 function(explain_setup)
     add_custom_target(EXPLAIN_INSTALL
