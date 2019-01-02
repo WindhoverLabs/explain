@@ -4,13 +4,13 @@ function(explain_generate_symbol_map)
     cmake_parse_arguments(PARSED_ARGS "" "INPUT_PATH;INPUT_FILE;DATABASE_NAME;OUTPUT_FILE" "" ${ARGN})
     
     add_custom_target(${TARGET_NAME}_DB
-        DEPENDS EXPLAIN_INSTALL ground_tools
+        DEPENDS EXPLAIN_INSTALL
         COMMAND ${PROJECT_SOURCE_DIR}/tools/explain/python/generate_symbol_map 
-        	${PARSED_ARGS_INPUT_PATH} 
-        	${PARSED_ARGS_INPUT_FILE} 
-        	${PARSED_ARGS_DATABASE_NAME} 
-        	${PARSED_ARGS_OUTPUT_FILE} 
-        	${PROJECT_BINARY_DIR}/host
+            ${PARSED_ARGS_INPUT_PATH} 
+            ${PARSED_ARGS_INPUT_FILE} 
+            ${PARSED_ARGS_DATABASE_NAME} 
+            ${PARSED_ARGS_OUTPUT_FILE} 
+            ${PROJECT_BINARY_DIR}/host
     )
     add_dependencies(${TARGET_NAME}_DB ${TARGET_NAME})
     add_dependencies(ground_tools ${TARGET_NAME}_DB)
@@ -24,9 +24,9 @@ function(explain_read_elf)
     add_custom_target(${TARGET_NAME}_DB
         DEPENDS EXPLAIN_INSTALL
         COMMAND ${PROJECT_SOURCE_DIR}/tools/explain/python/read_elf 
-        	${PARSED_ARGS_DATABASE_NAME} 
-        	${PARSED_ARGS_INPUT_PATH}
-        	${PROJECT_BINARY_DIR}/host
+            ${PARSED_ARGS_DATABASE_NAME} 
+            ${PARSED_ARGS_INPUT_PATH}
+            ${PROJECT_BINARY_DIR}/host
     )
     add_dependencies(${TARGET_NAME}_DB ${TARGET_NAME})
     add_dependencies(ground_tools ${TARGET_NAME}_DB)
@@ -42,9 +42,9 @@ function(explain_generate_cookie)
     add_custom_target(explain_cookie 
         DEPENDS EXPLAIN_INSTALL explain_parsing
         COMMAND ${PROJECT_SOURCE_DIR}/tools/explain/python/generate_cookie
-        	${PARSED_ARGS_DATABASE_NAME} 
-        	${PARSED_ARGS_OUTPUT_FILE} 
-        	${PROJECT_BINARY_DIR}/host
+            ${PARSED_ARGS_DATABASE_NAME} 
+            ${PARSED_ARGS_OUTPUT_FILE} 
+            ${PROJECT_BINARY_DIR}/host
     )
     add_dependencies(ground_tools explain_cookie)
 endfunction(explain_generate_cookie)
@@ -52,7 +52,7 @@ endfunction(explain_generate_cookie)
 function(explain_setup)
     add_custom_target(EXPLAIN_INSTALL
         COMMAND ${PROJECT_SOURCE_DIR}/tools/explain/python/setup_explain 
-        	${PROJECT_BINARY_DIR}/host
+            ${PROJECT_BINARY_DIR}/host
     )
     add_dependencies(ground_tools EXPLAIN_INSTALL)
 endfunction(explain_setup)
