@@ -1,0 +1,15 @@
+#!/bin/bash
+
+EXPLAIN_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null && pwd )"
+INPUT_FILE_PATH=$1
+INPUT_FILE_NAME=$2
+DATABASE_NAME=$3
+OUTPUT_FILE=$4
+VENV_DIR=$5
+
+cd $VENV_DIR
+source venv/bin/activate
+rm -Rf $DATABASE_NAME
+elf_reader $DATABASE_NAME $INPUT_FILE_PATH/$INPUT_FILE_NAME -q
+explain --file $INPUT_FILE_NAME --database $DATABASE_NAME --out $OUTPUT_FILE -a
+deactivate
